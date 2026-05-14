@@ -1,0 +1,7 @@
+<!-- ADD THESE KEYS to ios/Runner/Info.plist, just before the closing </dict> tag -->
+
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>ResQmove needs your location to dispatch the nearest ambulance to you.</string>
+
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>ResQmove uses your location to track ambulance dispatch in real time.</string>
