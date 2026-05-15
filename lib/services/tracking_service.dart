@@ -2,27 +2,21 @@
 //  ResQMove — Tracking Service
 //  lib/services/tracking_service.dart
 //
-//  Handles real-time ambulance location tracking for the patient side.
-//  Polls the backend on an interval until the trip is completed/cancelled.
+//  Patient-side tracking: Socket.io push when the driver updates location, plus
+//  slow HTTP polling as a fallback. Mock mode uses short polling only.
 //
-//  ENDPOINTS YOUR CLASSMATE NEEDS TO IMPLEMENT:
-//    GET  /requests/:id/tracking
-//         returns: {
-//           driver_location: { latitude, longitude, timestamp },
-//           status: 'accepted'|'in_progress'|'completed',
-//           eta_minutes: 5
-//         }
-//
-//    POST /driver/location
-//         body: { latitude, longitude, request_id? }
-//         returns: { success: true }
-//
+//  Backend: GET /requests/:id/tracking, POST /driver/location, Socket.io room
+//  `track:<requestId>` with event `tracking_update`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
-import 'api_client.dart';
+import 'package:socket_io_client/socket_io_client.dart' as socket_io;
+
+import '../config/app_config.dart';
 import '../models/models.dart';
+import 'api_client.dart';
 
 // ── Tracking Snapshot ─────────────────────────────────────────────────────────
 
@@ -42,7 +36,9 @@ class TrackingSnapshot {
   factory TrackingSnapshot.fromJson(Map<String, dynamic> json) {
     return TrackingSnapshot(
       driverLocation: json['driver_location'] != null
-          ? DriverLocation.fromJson(json['driver_location'] as Map<String, dynamic>)
+          ? DriverLocation.fromJson(
+              json['driver_location'] as Map<String, dynamic>,
+            )
           : null,
       status: RequestStatusX.fromString(json['status']?.toString()),
       etaMinutes: (json['eta_minutes'] as num?)?.toInt(),
@@ -63,39 +59,45 @@ class TrackingService {
   final ApiClient _client = ApiClient.instance;
 
   Timer? _pollTimer;
+  socket_io.Socket? _socket;
+
   final StreamController<TrackingSnapshot> _streamController =
       StreamController<TrackingSnapshot>.broadcast();
 
-  /// Live stream of tracking updates — subscribe in tracking_screen.dart
   Stream<TrackingSnapshot> get trackingStream => _streamController.stream;
 
-  bool get isTracking => _pollTimer?.isActive ?? false;
+  bool get isTracking =>
+      (_pollTimer?.isActive ?? false) || (_socket?.connected ?? false);
 
-  // ── Start polling for a request ────────────────────────────────────────────
-  //  Polls every [intervalSeconds] seconds.
-  //  Automatically stops when status is completed or cancelled.
-
-  void startTracking(String requestId, {int intervalSeconds = 5}) {
+  /// [backupPollSeconds]: HTTP fallback when socket is unavailable.
+  void startTracking(String requestId, {int backupPollSeconds = 25}) {
     stopTracking();
 
     _log('Tracking started for request $requestId');
 
-    _fetchAndEmit(requestId);
+    unawaited(_fetchAndEmit(requestId));
+
+    if (AppConfig.useMockApi) {
+      _pollTimer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => unawaited(_fetchAndEmit(requestId)),
+      );
+      return;
+    }
+
+    unawaited(_connectSocket(requestId));
     _pollTimer = Timer.periodic(
-      Duration(seconds: intervalSeconds),
-      (_) => _fetchAndEmit(requestId),
+      Duration(seconds: backupPollSeconds),
+      (_) => unawaited(_fetchAndEmit(requestId)),
     );
   }
-
-  // ── Stop polling ───────────────────────────────────────────────────────────
 
   void stopTracking() {
     _pollTimer?.cancel();
     _pollTimer = null;
+    _disconnectSocket();
     _log('Tracking stopped');
   }
-
-  // ── One-shot fetch (no polling) ────────────────────────────────────────────
 
   Future<TrackingSnapshot?> fetchOnce(String requestId) async {
     try {
@@ -105,12 +107,12 @@ class TrackingService {
     }
   }
 
-  // ── Private fetch + emit ───────────────────────────────────────────────────
-
   Future<void> _fetchAndEmit(String requestId) async {
     try {
       final snapshot = await _fetchSnapshot(requestId);
-      _streamController.add(snapshot);
+      if (!_streamController.isClosed) {
+        _streamController.add(snapshot);
+      }
 
       if (snapshot.isTerminal) {
         _log('Trip terminal (${snapshot.status.label}) — stopping tracker');
@@ -122,7 +124,7 @@ class TrackingService {
   }
 
   Future<TrackingSnapshot> _fetchSnapshot(String requestId) async {
-    if (_mockMode) {
+    if (AppConfig.useMockApi) {
       await Future<void>.delayed(const Duration(milliseconds: 300));
       return TrackingSnapshot(
         driverLocation: null,
@@ -136,7 +138,76 @@ class TrackingService {
     return TrackingSnapshot.fromJson(response.data ?? {});
   }
 
-  // ── Driver location push (driver → server) ─────────────────────────────────
+  String _socketOrigin() {
+    final base = Uri.parse(AppConfig.apiBaseUrl);
+    final port = base.hasPort ? base.port : (base.scheme == 'https' ? 443 : 80);
+    return '${base.scheme}://${base.host}:$port';
+  }
+
+  Future<void> _connectSocket(String requestId) async {
+    _disconnectSocket();
+    final token = _client.accessToken;
+    if (token == null || token.isEmpty) {
+      _log('No access token — socket tracking skipped');
+      return;
+    }
+
+    try {
+      _socket = socket_io.io(
+        _socketOrigin(),
+        socket_io.OptionBuilder()
+            .setTransports(['websocket'])
+            .enableReconnection()
+            .setReconnectionDelay(2000)
+            .setReconnectionAttempts(10)
+            .build(),
+      );
+
+      _socket!.on('connect', (_) {
+        _log('Socket connected');
+        _socket!.emit('subscribe_tracking', {
+          'request_id': requestId,
+          'token': token,
+        });
+      });
+
+      _socket!.on('tracking_update', (dynamic data) {
+        if (data is Map) {
+          unawaited(_onSocketTracking(Map<String, dynamic>.from(data)));
+        }
+      });
+
+      _socket!.on('tracking_error', (dynamic data) {
+        _log('tracking_error: $data');
+      });
+
+      _socket!.connect();
+    } catch (e) {
+      _log('Socket setup error: $e');
+    }
+  }
+
+  Future<void> _onSocketTracking(Map<String, dynamic> data) async {
+    try {
+      final snap = TrackingSnapshot.fromJson(data);
+      if (!_streamController.isClosed) {
+        _streamController.add(snap);
+      }
+      if (snap.isTerminal) {
+        stopTracking();
+      }
+    } catch (e) {
+      _log('tracking_update parse: $e');
+    }
+  }
+
+  void _disconnectSocket() {
+    try {
+      _socket?.disconnect();
+      _socket?.dispose();
+    } catch (_) {}
+    _socket = null;
+  }
 
   Future<void> pushDriverLocation({
     required double latitude,
@@ -144,7 +215,7 @@ class TrackingService {
     String? activeRequestId,
   }) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         _log('Driver location push (mock): $latitude, $longitude');
         return;
       }
@@ -159,8 +230,6 @@ class TrackingService {
     }
   }
 
-  // ── Cleanup ────────────────────────────────────────────────────────────────
-
   void dispose() {
     stopTracking();
     _streamController.close();
@@ -170,6 +239,3 @@ class TrackingService {
     if (kDebugMode) debugPrint('[TrackingService] $msg');
   }
 }
-
-// ── Toggle mock mode ──────────────────────────────────────────────────────────
-const bool _mockMode = true;

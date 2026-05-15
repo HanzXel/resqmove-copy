@@ -21,6 +21,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
+
+import '../config/app_config.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import '../models/models.dart';
@@ -35,7 +37,7 @@ class DriverService {
 
   Future<DriverResult> setStatus(DriverStatus status) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
         final updated = AuthService.instance.currentDriver?.copyWith(status: status);
         if (updated != null) AuthService.instance.updateCachedDriver(updated);
@@ -59,7 +61,7 @@ class DriverService {
 
   Future<RequestListResult> getIncomingRequests() async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
         return const RequestListResult._(success: true, requests: []);
       }
@@ -82,7 +84,7 @@ class DriverService {
 
   Future<ActiveTripResult> getActiveTrip() async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
         return const ActiveTripResult._(success: true, request: null);
       }
@@ -112,7 +114,7 @@ class DriverService {
 
   Future<DriverResult> acceptRequest(String requestId) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 600));
         _log('Request $requestId accepted (mock)');
         return DriverResult.success();
@@ -132,7 +134,7 @@ class DriverService {
 
   Future<DriverResult> declineRequest(String requestId) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
         _log('Request $requestId declined (mock)');
         return DriverResult.success();
@@ -152,7 +154,7 @@ class DriverService {
 
   Future<DriverResult> completeTrip(String requestId) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 600));
         _log('Trip $requestId completed (mock)');
         return DriverResult.success();
@@ -172,7 +174,7 @@ class DriverService {
 
   Future<DriverStats> getStats() async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 300));
         return DriverStats.empty();
       }
@@ -225,6 +227,3 @@ class ActiveTripResult {
     this.errorMessage,
   });
 }
-
-// ── Toggle mock mode ──────────────────────────────────────────────────────────
-const bool _mockMode = true;

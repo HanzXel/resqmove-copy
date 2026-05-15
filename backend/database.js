@@ -62,7 +62,31 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (assigned_driver_id) REFERENCES drivers(id)
   );
+
+  CREATE TABLE IF NOT EXISTS transport_bookings (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    patient_name TEXT NOT NULL DEFAULT '',
+    pickup_address TEXT NOT NULL,
+    destination_hospital TEXT NOT NULL,
+    contact_number TEXT,
+    scheduled_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
 `);
+
+// ── Schema migrations (additive) ─────────────────────────────────────────────
+(() => {
+  const cols = db.prepare('PRAGMA table_info(drivers)').all();
+  const hasApproved = cols.some((c) => c.name === 'approved');
+  if (!hasApproved) {
+    db.exec(
+      "ALTER TABLE drivers ADD COLUMN approved INTEGER NOT NULL DEFAULT 1",
+    );
+  }
+})();
 
 // ── Helper: map DB driver row → API JSON ──────────────────────────────────────
 function driverToJson(row) {
@@ -76,6 +100,7 @@ function driverToJson(row) {
     hospital_name: row.hospital_name,
     unit_type: row.unit_type,
     status: row.status,
+    approved: row.approved !== undefined ? !!row.approved : true,
     current_location: row.current_lat != null ? {
       latitude: row.current_lat,
       longitude: row.current_lng,

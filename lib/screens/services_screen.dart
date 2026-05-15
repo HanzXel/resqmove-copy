@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
+import '../services/registration_service.dart';
+import '../services/transport_service.dart';
 
 class ServicesScreen extends StatelessWidget {
   const ServicesScreen({super.key});
@@ -432,6 +434,32 @@ class _NonEmergencyBookingScreenState extends State<NonEmergencyBookingScreen> {
   final _hospitalCtrl = TextEditingController();
   final _contactCtrl = TextEditingController();
   DateTime? _selectedDateTime;
+  bool _submittingTransport = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _prefillFromRegistration();
+  }
+
+  Future<void> _prefillFromRegistration() async {
+    final reg = await RegistrationService.instance.loadRegistration();
+    if (!mounted || reg == null) return;
+    setState(() {
+      if (reg.fullName.isNotEmpty) _nameCtrl.text = reg.fullName;
+      if (reg.address.isNotEmpty) _pickupCtrl.text = reg.address;
+      if (reg.mobilePrimary.isNotEmpty) _contactCtrl.text = reg.mobilePrimary;
+    });
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _pickupCtrl.dispose();
+    _hospitalCtrl.dispose();
+    _contactCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _pickDateTime() async {
     final date = await showDatePicker(
@@ -457,6 +485,61 @@ class _NonEmergencyBookingScreenState extends State<NonEmergencyBookingScreen> {
     setState(() {
       _selectedDateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
     });
+  }
+
+  Future<void> _bookTransport() async {
+    if (_submittingTransport) return;
+    if (_nameCtrl.text.trim().isEmpty ||
+        _pickupCtrl.text.trim().isEmpty ||
+        _hospitalCtrl.text.trim().isEmpty ||
+        _contactCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please fill in all fields.',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    if (_selectedDateTime == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please choose date and time.',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _submittingTransport = true);
+    final result = await TransportService.instance.submitBooking(
+      patientName: _nameCtrl.text.trim(),
+      pickupAddress: _pickupCtrl.text.trim(),
+      destinationHospital: _hospitalCtrl.text.trim(),
+      contactNumber: _contactCtrl.text.trim(),
+      scheduledAt: _selectedDateTime!,
+    );
+    if (!mounted) return;
+    setState(() => _submittingTransport = false);
+
+    if (result.success) {
+      _showConfirmation(
+        context,
+        'Transport Booked!',
+        'Your request is saved and pending dispatch. Reference: ${result.id}',
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.errorMessage ?? 'Booking failed.',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.crimson,
+        ),
+      );
+    }
   }
 
   @override
@@ -498,10 +581,10 @@ class _NonEmergencyBookingScreenState extends State<NonEmergencyBookingScreen> {
             _DateTimeField(label: 'Preferred Date & Time', selectedDateTime: _selectedDateTime, onTap: _pickDateTime),
             const SizedBox(height: 32),
             _PrimaryButton(
-              label: 'BOOK TRANSPORT',
+              label: _submittingTransport ? 'SUBMITTING...' : 'BOOK TRANSPORT',
               icon: Icons.airport_shuttle_rounded,
               color: AppTheme.blue,
-              onTap: () => _showConfirmation(context, 'Transport Booked!', 'Your non-emergency transport has been scheduled.'),
+              onTap: _submittingTransport ? () {} : _bookTransport,
             ),
           ],
         ),

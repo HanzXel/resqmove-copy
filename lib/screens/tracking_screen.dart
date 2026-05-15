@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../theme/app_theme.dart';
+import '../models/models.dart';
+import '../services/request_service.dart';
+import '../services/tracking_service.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -12,36 +17,194 @@ class TrackingScreen extends StatefulWidget {
   State<TrackingScreen> createState() => _TrackingScreenState();
 }
 
-class _TrackingScreenState extends State<TrackingScreen>
-    with SingleTickerProviderStateMixin {
-  static const LatLng _destination = LatLng(10.3157, 123.8854);
-  static const LatLng _ambulancePos = LatLng(10.3220, 123.8920);
-
+class _TrackingScreenState extends State<TrackingScreen> {
   final MapController _mapController = MapController();
-  late final AnimationController _shimmerCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1600),
-  )..repeat(reverse: true);
 
-  static const _TrackingUiState _state = _TrackingUiState(
-    status: 'AWAITING LIVE DISPATCH',
-    statusColor: AppTheme.warning,
-    eta: 'N/A',
-    unitId: 'No assigned unit',
-    subtitle: 'Dispatch details will appear here once assigned.',
-    distance: 'N/A',
-    stepsDone: [false, false, false],
-    stepsActive: [true, false, false],
-  );
+  bool _loading = true;
+  AmbulanceRequestModel? _request;
+  TrackingSnapshot? _snapshot;
+  StreamSubscription<TrackingSnapshot>? _sub;
+
+  LatLng get _pickup {
+    final r = _request;
+    if (r == null) return const LatLng(10.3157, 123.8854);
+    return LatLng(r.pickupLocation.latitude, r.pickupLocation.longitude);
+  }
+
+  LatLng? get _ambulance {
+    final loc = _snapshot?.driverLocation;
+    if (loc == null) return null;
+    return LatLng(loc.latitude, loc.longitude);
+  }
+
+  LatLng get _mapCenter {
+    final a = _ambulance;
+    if (a == null) return _pickup;
+    return LatLng(
+      (a.latitude + _pickup.latitude) / 2,
+      (a.longitude + _pickup.longitude) / 2,
+    );
+  }
+
+  _TrackingUiState get _state => _buildUiState();
+
+  _TrackingUiState _buildUiState() {
+    final r = _request;
+    if (r == null) {
+      return const _TrackingUiState(
+        status: 'NO ACTIVE REQUEST',
+        statusColor: AppTheme.textLight,
+        eta: '--',
+        unitId: '—',
+        subtitle: 'When you have an active ambulance request, live tracking appears here.',
+        distance: '—',
+        stepsDone: [false, false, false],
+        stepsActive: [false, false, false],
+      );
+    }
+    final st = _snapshot?.status ?? r.status;
+    String statusLabel;
+    Color statusColor;
+    switch (st) {
+      case RequestStatus.pending:
+        statusLabel = 'WAITING FOR DRIVER';
+        statusColor = AppTheme.warning;
+        break;
+      case RequestStatus.accepted:
+        statusLabel = 'AMBULANCE EN ROUTE';
+        statusColor = AppTheme.blue;
+        break;
+      case RequestStatus.inProgress:
+        statusLabel = 'ON SCENE / TRANSPORT';
+        statusColor = AppTheme.success;
+        break;
+      case RequestStatus.completed:
+        statusLabel = 'COMPLETED';
+        statusColor = AppTheme.success;
+        break;
+      case RequestStatus.cancelled:
+        statusLabel = 'CANCELLED';
+        statusColor = AppTheme.textLight;
+        break;
+      case RequestStatus.declined:
+        statusLabel = 'DECLINED';
+        statusColor = AppTheme.textLight;
+        break;
+    }
+
+    final eta = (_snapshot?.etaMinutes != null)
+        ? '${_snapshot!.etaMinutes} min'
+        : '--';
+
+    final addr = r.pickupLocation.address?.trim();
+    final subtitle = (addr != null && addr.isNotEmpty)
+        ? addr
+        : 'Pickup: ${r.pickupLocation.latitude.toStringAsFixed(4)}, ${r.pickupLocation.longitude.toStringAsFixed(4)}';
+
+    final done1 = st != RequestStatus.pending;
+    final done2 = st == RequestStatus.inProgress ||
+        st == RequestStatus.completed ||
+        st == RequestStatus.cancelled;
+    final done3 = st == RequestStatus.completed;
+
+    return _TrackingUiState(
+      status: statusLabel,
+      statusColor: statusColor,
+      eta: eta,
+      unitId: 'Ambulance',
+      subtitle: subtitle,
+      distance: '--',
+      stepsDone: [true, done1 && done2, done3],
+      stepsActive: [
+        st == RequestStatus.pending,
+        st == RequestStatus.accepted,
+        st == RequestStatus.inProgress,
+      ],
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_bootstrap());
+  }
+
+  Future<void> _bootstrap() async {
+    final res = await RequestService.instance.getActiveRequest();
+    if (!mounted) return;
+
+    if (!res.success || res.request == null || res.request!.id == null) {
+      setState(() {
+        _loading = false;
+        _request = null;
+      });
+      return;
+    }
+
+    final id = res.request!.id!;
+    setState(() {
+      _loading = false;
+      _request = res.request;
+    });
+
+    TrackingService.instance.startTracking(id);
+    _sub = TrackingService.instance.trackingStream.listen((snap) {
+      if (mounted) setState(() => _snapshot = snap);
+    });
+  }
 
   @override
   void dispose() {
-    _shimmerCtrl.dispose();
+    _sub?.cancel();
+    TrackingService.instance.stopTracking();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF5F7FC),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_request == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F7FC),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.map_outlined,
+                      size: 72, color: AppTheme.textLight.withOpacity(0.5)),
+                  const SizedBox(height: 20),
+                  Text('No active trip',
+                      style: GoogleFonts.outfit(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textDark)),
+                  const SizedBox(height: 10),
+                  Text(
+                    'When you submit an emergency request and a unit is assigned, you can follow the ambulance here in real time.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.outfit(
+                        fontSize: 14, color: AppTheme.textMid, height: 1.5),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final amb = _ambulance;
+    final pickup = _pickup;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FC),
       body: Column(
@@ -57,10 +220,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                   child: FlutterMap(
                     mapController: _mapController,
                     options: MapOptions(
-                      initialCenter: LatLng(
-                        (_destination.latitude + _ambulancePos.latitude) / 2,
-                        (_destination.longitude + _ambulancePos.longitude) / 2,
-                      ),
+                      initialCenter: _mapCenter,
                       initialZoom: 14.5,
                     ),
                     children: [
@@ -69,22 +229,22 @@ class _TrackingScreenState extends State<TrackingScreen>
                             'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                         userAgentPackageName: 'com.resqmove.app',
                       ),
-                      PolylineLayer(
-                        polylines: [
-                          Polyline(
-                            points: [_ambulancePos, _destination],
-                            color: AppTheme.crimson,
-                            strokeWidth: 5,
-                            borderColor: AppTheme.crimson.withOpacity(0.2),
-                            borderStrokeWidth: 10,
-                          ),
-                        ],
-                      ),
+                      if (amb != null)
+                        PolylineLayer(
+                          polylines: [
+                            Polyline(
+                              points: [amb, pickup],
+                              color: AppTheme.crimson,
+                              strokeWidth: 5,
+                              borderColor: AppTheme.crimson.withOpacity(0.2),
+                              borderStrokeWidth: 10,
+                            ),
+                          ],
+                        ),
                       MarkerLayer(
                         markers: [
-                          // User marker
                           Marker(
-                            point: _destination,
+                            point: pickup,
                             width: 56,
                             height: 56,
                             child: Container(
@@ -104,35 +264,35 @@ class _TrackingScreenState extends State<TrackingScreen>
                                   color: Colors.white, size: 26),
                             ),
                           ),
-                          // Ambulance marker
-                          Marker(
-                            point: _ambulancePos,
-                            width: 64,
-                            height: 64,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    Color(0xFFFF1A35),
-                                    AppTheme.crimson
+                          if (amb != null)
+                            Marker(
+                              point: amb,
+                              width: 64,
+                              height: 64,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFFFF1A35),
+                                      AppTheme.crimson
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  shape: BoxShape.circle,
+                                  border:
+                                      Border.all(color: Colors.white, width: 3),
+                                  boxShadow: [
+                                    BoxShadow(
+                                        color: AppTheme.crimson.withOpacity(0.6),
+                                        blurRadius: 22,
+                                        spreadRadius: 4)
                                   ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
                                 ),
-                                shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: Colors.white, width: 3),
-                                boxShadow: [
-                                  BoxShadow(
-                                      color: AppTheme.crimson.withOpacity(0.6),
-                                      blurRadius: 22,
-                                      spreadRadius: 4)
-                                ],
+                                child: const Icon(Icons.airport_shuttle_rounded,
+                                    color: Colors.white, size: 28),
                               ),
-                              child: const Icon(Icons.airport_shuttle_rounded,
-                                  color: Colors.white, size: 28),
                             ),
-                          ),
                         ],
                       ),
                     ],
@@ -184,7 +344,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                             ),
                           ),
                           const Spacer(),
-                          // Call driver button
                           GestureDetector(
                             onTap: () {
                               HapticFeedback.mediumImpact();
@@ -267,14 +426,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                   right: 16,
                   child: GestureDetector(
                     onTap: () {
-                      _mapController.move(
-                        LatLng(
-                          (_destination.latitude + _ambulancePos.latitude) / 2,
-                          (_destination.longitude + _ambulancePos.longitude) /
-                              2,
-                        ),
-                        14.5,
-                      );
+                      _mapController.move(_mapCenter, 14.5);
                     },
                     child: Container(
                       width: 44,

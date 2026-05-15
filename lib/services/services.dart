@@ -9,6 +9,8 @@
 export 'api_client.dart';
 export 'auth_service.dart';
 export 'request_service.dart';
+export 'transport_service.dart';
 export 'driver_service.dart';
 export 'tracking_service.dart';
+export 'routing_service.dart';
 export 'profile_service.dart';

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_theme.dart';
+import '../../models/models.dart';
 import '../../services/auth_service.dart';
+import '../../services/profile_service.dart';
 
 class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
@@ -44,18 +46,49 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     super.dispose();
   }
 
-  void _saveProfile() {
-    // TODO (DB): Call ProfileService.instance.updateDriverProfile(...)
-    setState(() => _isEditing = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Driver profile saved!', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
-        backgroundColor: AppTheme.success,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        margin: const EdgeInsets.all(16),
-      ),
+  Future<void> _saveProfile() async {
+    final base = AuthService.instance.currentDriver;
+    if (base == null) return;
+
+    setState(() {
+      _isEditing = false;
+    });
+
+    final updated = DriverModel(
+      id: base.id,
+      fullName: _fullNameCtrl.text.trim(),
+      driverId: base.driverId,
+      contactNumber: _contactCtrl.text.trim(),
+      unitId: _unitIdCtrl.text.trim().isEmpty ? null : _unitIdCtrl.text.trim(),
+      hospitalName: _hospitalCtrl.text.trim().isEmpty ? null : _hospitalCtrl.text.trim(),
+      unitType: _unitTypeCtrl.text.trim().isEmpty ? null : _unitTypeCtrl.text.trim(),
+      status: base.status,
     );
+
+    final result = await ProfileService.instance.updateDriverProfile(updated);
+    if (!mounted) return;
+
+    if (result.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Driver profile saved!', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          backgroundColor: AppTheme.success,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.errorMessage ?? 'Save failed.',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          backgroundColor: AppTheme.crimson,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
   }
 
   void _logout(BuildContext context) {

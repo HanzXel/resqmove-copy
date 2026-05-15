@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:geolocator/geolocator.dart';
+import 'dart:async';
+
+import '../../config/app_config.dart';
 import '../../theme/app_theme.dart';
+import '../../services/driver_service.dart';
+import '../../services/tracking_service.dart';
 import 'driver_hospital_screen.dart';
 
 class DriverActiveTripScreen extends StatefulWidget {
@@ -14,6 +20,7 @@ class DriverActiveTripScreen extends StatefulWidget {
 
 class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   int _currentStatus = 0;
+  Timer? _locationTimer;
 
   final List<Map<String, dynamic>> _statusSteps = [
     {'label': 'En Route to Patient', 'icon': Icons.airport_shuttle_rounded, 'color': AppTheme.warning},
@@ -22,18 +29,79 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     {'label': 'Trip Completed', 'icon': Icons.check_circle_rounded, 'color': AppTheme.success},
   ];
 
-  void _advanceStatus() {
+  String? get _requestId => widget.request['id']?.toString();
+
+  @override
+  void initState() {
+    super.initState();
+    if (!AppConfig.useMockApi) {
+      _locationTimer = Timer.periodic(const Duration(seconds: 12), (_) => _pushGps());
+      unawaited(_pushGps());
+    }
+  }
+
+  Future<void> _pushGps() async {
+    final id = _requestId;
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      await TrackingService.instance.pushDriverLocation(
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        activeRequestId: id,
+      );
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _locationTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _advanceStatus() async {
     HapticFeedback.heavyImpact();
     if (_currentStatus == 1) {
+      if (!mounted) return;
       Navigator.push(context,
           MaterialPageRoute(builder: (_) => DriverHospitalScreen(request: widget.request)));
       return;
     }
     if (_currentStatus < _statusSteps.length - 1) {
       setState(() => _currentStatus++);
-    } else {
-      Navigator.popUntil(context, (route) => route.isFirst);
+      return;
     }
+    // Final step: complete trip on server
+    final id = _requestId;
+    if (id != null && id.isNotEmpty && !AppConfig.useMockApi) {
+      final res = await DriverService.instance.completeTrip(id);
+      if (!mounted) return;
+      if (!res.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res.errorMessage ?? 'Could not complete trip.',
+                style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+            backgroundColor: AppTheme.crimson,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+    }
+    if (!mounted) return;
+    Navigator.popUntil(context, (route) => route.isFirst);
   }
 
   void _cancelTrip() {
@@ -202,13 +270,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               child: Column(
                 children: [
                   _PatientInfoRow(icon: Icons.emergency_rounded, label: 'Emergency',
-                      value: widget.request['emergencyType'] ?? 'Not provided', color: AppTheme.crimson),
+                      value: (widget.request['emergencyType'] ?? widget.request['emergency_type'] ?? 'Not provided').toString(), color: AppTheme.crimson),
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
                     child: Divider(color: AppTheme.border, height: 1),
                   ),
                   _PatientInfoRow(icon: Icons.location_on_rounded, label: 'Location',
-                      value: widget.request['location'] ?? 'Not provided', color: AppTheme.blue),
+                      value: (widget.request['location'] ?? 'Not provided').toString(), color: AppTheme.blue),
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
                     child: Divider(color: AppTheme.border, height: 1),

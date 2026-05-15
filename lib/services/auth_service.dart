@@ -7,11 +7,12 @@
 //    • Drivers   (username + password, as seen in driver_login_screen.dart)
 //
 //  HOW MOCK MODE WORKS:
-//  - _mockMode = true  → simulates login success, returns fake tokens
-//  - _mockMode = false → hits real backend endpoints via ApiClient
+//  - AppConfig.useMockApi = true  → simulates login success, returns fake tokens
+//  - AppConfig.useMockApi = false → hits real backend endpoints via ApiClient
 //
 //  ENDPOINTS YOUR CLASSMATE NEEDS TO IMPLEMENT:
 //    POST /auth/patient/login   body: { contact_number }
+//    POST /auth/driver/register body: { driver_id, password, full_name, ... }
 //    POST /auth/driver/login    body: { username, password, unit_id? }
 //    POST /auth/logout          header: Authorization Bearer <token>
 //    POST /auth/refresh         body: { refresh_token }
@@ -19,6 +20,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
+
+import '../config/app_config.dart';
 import 'api_client.dart';
 import '../models/models.dart';
 
@@ -50,6 +53,8 @@ class AuthService {
   AuthService._();
   static final AuthService instance = AuthService._();
 
+  static const Duration _authNetworkTimeout = Duration(seconds: 45);
+
   final ApiClient _client = ApiClient.instance;
 
   // ── Session state ──────────────────────────────────────────────────────────
@@ -72,7 +77,7 @@ class AuthService {
     required String contactNumber,
   }) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 900));
         _currentUser = UserModel(
           id: 'mock-user-001',
@@ -89,6 +94,7 @@ class AuthService {
         '/auth/patient/login',
         body: {'contact_number': contactNumber},
         auth: false,
+        timeout: _authNetworkTimeout,
       );
 
       _handleTokensFromResponse(response.data);
@@ -116,7 +122,7 @@ class AuthService {
     String? unitId,
   }) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 900));
         _currentDriver = DriverModel(
           id: 'mock-driver-001',
@@ -140,6 +146,7 @@ class AuthService {
           if (unitId != null && unitId.isNotEmpty) 'unit_id': unitId,
         },
         auth: false,
+        timeout: _authNetworkTimeout,
       );
 
       _handleTokensFromResponse(response.data);
@@ -157,11 +164,56 @@ class AuthService {
     }
   }
 
+  /// Self-service driver signup (no token returned — user signs in after).
+  Future<AuthResult> registerDriver({
+    required String driverId,
+    required String password,
+    required String fullName,
+    String contactNumber = '',
+    String? unitId,
+    String? hospitalName,
+    String? unitType,
+  }) async {
+    try {
+      if (AppConfig.useMockApi) {
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        return AuthResult.success();
+      }
+
+      await _client.post(
+        '/auth/driver/register',
+        auth: false,
+        timeout: _authNetworkTimeout,
+        body: {
+          'driver_id': driverId.trim(),
+          'password': password,
+          'full_name': fullName.trim(),
+          'contact_number': contactNumber.trim(),
+          if (unitId != null && unitId.trim().isNotEmpty) 'unit_id': unitId.trim(),
+          if (hospitalName != null && hospitalName.trim().isNotEmpty)
+            'hospital_name': hospitalName.trim(),
+          if (unitType != null && unitType.trim().isNotEmpty)
+            'unit_type': unitType.trim(),
+        },
+      );
+      return AuthResult.success();
+    } on ApiException catch (e) {
+      final msg = e.message.toLowerCase().contains('timed out')
+          ? 'Request timed out. Is the backend running? On a real phone set '
+              'API_BASE_URL to your PC IP, e.g. '
+              'flutter run --dart-define=API_BASE_URL=http://192.168.1.5:8000/api/v1'
+          : e.message;
+      return AuthResult.failure(msg);
+    } catch (e) {
+      return AuthResult.failure('Registration failed. Please try again.');
+    }
+  }
+
   // ── Logout ─────────────────────────────────────────────────────────────────
 
   Future<void> logout() async {
     try {
-      if (!_mockMode && isLoggedIn) {
+      if (!AppConfig.useMockApi && isLoggedIn) {
         await _client.post('/auth/logout');
       }
     } catch (_) {
@@ -180,7 +232,7 @@ class AuthService {
   //  Your UI layer can call this and retry the failed request.
 
   Future<bool> refreshToken() async {
-    if (_mockMode) return true;
+    if (AppConfig.useMockApi) return true;
     try {
       final response = await _client.post(
         '/auth/refresh',
@@ -235,7 +287,3 @@ class AuthService {
     if (kDebugMode) debugPrint('[AuthService] $msg');
   }
 }
-
-// ── Toggle mock mode (mirrors ApiClient setting) ──────────────────────────────
-//  Keep this in sync with api_client.dart's _mockMode constant.
-const bool _mockMode = true;

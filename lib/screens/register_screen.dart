@@ -1,0 +1,882 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  ResQMove — Register Screen
+//  lib/screens/register_screen.dart
+//
+//  Shown once on first launch (before the main shell).
+//  Collects basic biographic data and stores it locally via RegistrationService.
+//
+//  Fields:
+//    • Full Name
+//    • Barangay
+//    • Full Address
+//    • Mobile No. 1  (primary — the phone owner)
+//    • Mobile No. 2  (secondary — emergency contact person)
+//    • Name of Emergency Contact Person
+//
+//  After saving, navigates to MainShell and never shows again.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../theme/app_theme.dart';
+import '../config/app_config.dart';
+import '../services/registration_service.dart';
+import '../services/session_service.dart';
+
+class RegisterScreen extends StatefulWidget {
+  /// Called when registration is complete — parent swaps to MainShell.
+  final VoidCallback onRegistered;
+
+  /// Opens patient sign-in (e.g. returning user on a new device).
+  final VoidCallback? onRequestSignIn;
+
+  const RegisterScreen({
+    super.key,
+    required this.onRegistered,
+    this.onRequestSignIn,
+  });
+
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen>
+    with TickerProviderStateMixin {
+  // ── Controllers ──────────────────────────────────────────────────────────
+  final _fullNameCtrl      = TextEditingController();
+  final _barangayCtrl      = TextEditingController();
+  final _addressCtrl       = TextEditingController();
+  final _mobile1Ctrl       = TextEditingController();
+  final _mobile2Ctrl       = TextEditingController();
+  final _ecNameCtrl        = TextEditingController();
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  final _formKey    = GlobalKey<FormState>();
+  bool _isSaving    = false;
+  bool _agreed      = false;
+
+  // ── Animation ─────────────────────────────────────────────────────────────
+  late final AnimationController _fadeCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..forward();
+
+  late final Animation<double> _fadeAnim =
+      CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+
+  @override
+  void dispose() {
+    _fadeCtrl.dispose();
+    _fullNameCtrl.dispose();
+    _barangayCtrl.dispose();
+    _addressCtrl.dispose();
+    _mobile1Ctrl.dispose();
+    _mobile2Ctrl.dispose();
+    _ecNameCtrl.dispose();
+    super.dispose();
+  }
+
+  // ── Save & proceed ────────────────────────────────────────────────────────
+  Future<void> _submit() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!_agreed) {
+      _showToast('Please agree to the terms to continue.', error: true);
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
+    setState(() => _isSaving = true);
+
+    final data = RegistrationData(
+      fullName:        _fullNameCtrl.text.trim(),
+      barangay:        _barangayCtrl.text.trim(),
+      address:         _addressCtrl.text.trim(),
+      mobilePrimary:   _mobile1Ctrl.text.trim(),
+      mobileSecondary: _mobile2Ctrl.text.trim(),
+      ecName:          _ecNameCtrl.text.trim(),
+    );
+
+    final ok = await RegistrationService.instance.saveRegistration(data);
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    if (ok) {
+      HapticFeedback.heavyImpact();
+      if (!mounted) return;
+      widget.onRegistered();
+      unawaited(_syncPatientInBackground());
+    } else {
+      _showToast('Could not save registration. Please try again.', error: true);
+    }
+  }
+
+  /// Server sync must not block entering the app (unreachable API / slow Wi‑Fi).
+  Future<void> _syncPatientInBackground() async {
+    if (AppConfig.useMockApi) return;
+    try {
+      await SessionService.instance.syncPatientFromRegistration();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('[RegisterScreen] Background patient sync failed: $e\n$st');
+      }
+    }
+  }
+
+  void _showToast(String msg, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(children: [
+          Icon(error ? Icons.error_outline_rounded : Icons.check_circle_rounded,
+              color: Colors.white, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(msg,
+                style: GoogleFonts.outfit(
+                    fontWeight: FontWeight.w600, color: Colors.white)),
+          ),
+        ]),
+        backgroundColor: error ? AppTheme.crimson : AppTheme.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F9FC),
+      body: FadeTransition(
+        opacity: _fadeAnim,
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            // ── Hero header ───────────────────────────────────────────────
+            SliverToBoxAdapter(child: _buildHeader()),
+
+            // ── Form ──────────────────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Personal Info ─────────────────────────────────
+                      _SectionLabel(
+                        icon: Icons.person_outline_rounded,
+                        label: 'Personal Information',
+                        color: AppTheme.blue,
+                      ),
+                      const SizedBox(height: 14),
+                      _FormCard(children: [
+                        _Field(
+                          ctrl: _fullNameCtrl,
+                          label: 'Full Name',
+                          hint: 'Juan Dela Cruz',
+                          icon: Icons.badge_outlined,
+                          validator: _required,
+                        ),
+                        _divider(),
+                        _Field(
+                          ctrl: _barangayCtrl,
+                          label: 'Barangay',
+                          hint: 'e.g. Barangay Lahug',
+                          icon: Icons.location_city_outlined,
+                          validator: _required,
+                        ),
+                        _divider(),
+                        _Field(
+                          ctrl: _addressCtrl,
+                          label: 'Full Address',
+                          hint: 'Street, Barangay, City',
+                          icon: Icons.home_outlined,
+                          maxLines: 2,
+                          isLast: true,
+                        ),
+                      ]),
+
+                      const SizedBox(height: 28),
+
+                      // ── Contact Numbers ───────────────────────────────
+                      _SectionLabel(
+                        icon: Icons.phone_outlined,
+                        label: 'Contact Numbers',
+                        color: AppTheme.crimson,
+                      ),
+                      const SizedBox(height: 8),
+                      _InfoNote(
+                        text:
+                            'Mobile No. 1 is used to identify and contact you. '
+                            'Mobile No. 2 is for your emergency contact person.',
+                      ),
+                      const SizedBox(height: 14),
+                      _FormCard(accentColor: AppTheme.crimson, children: [
+                        _Field(
+                          ctrl: _mobile1Ctrl,
+                          label: 'Mobile No. 1 — Primary (You)',
+                          hint: '09XX XXX XXXX',
+                          icon: Icons.smartphone_rounded,
+                          keyboard: TextInputType.phone,
+                          validator: _requiredPhone,
+                          prefix: _PhonePrefix(label: 'PRIMARY'),
+                        ),
+                        _divider(),
+                        _Field(
+                          ctrl: _mobile2Ctrl,
+                          label: 'Mobile No. 2 — Emergency Contact',
+                          hint: '09XX XXX XXXX',
+                          icon: Icons.contact_phone_outlined,
+                          keyboard: TextInputType.phone,
+                          prefix: _PhonePrefix(
+                              label: 'EMERGENCY', color: AppTheme.warning),
+                          isLast: true,
+                        ),
+                      ]),
+
+                      const SizedBox(height: 28),
+
+                      // ── Emergency Contact Name ─────────────────────────
+                      _SectionLabel(
+                        icon: Icons.contact_emergency_outlined,
+                        label: 'Emergency Contact Person',
+                        color: const Color(0xFF6B48FF),
+                      ),
+                      const SizedBox(height: 14),
+                      _FormCard(
+                          accentColor: const Color(0xFF6B48FF),
+                          children: [
+                            _Field(
+                              ctrl: _ecNameCtrl,
+                              label: 'Contact Person\'s Full Name',
+                              hint: 'Name of person to call in emergency',
+                              icon: Icons.person_pin_outlined,
+                              isLast: true,
+                            ),
+                          ]),
+
+                      const SizedBox(height: 28),
+
+                      // ── GPS notice ────────────────────────────────────
+                      _GpsNoticeCard(),
+
+                      const SizedBox(height: 24),
+
+                      if (widget.onRequestSignIn != null)
+                        Center(
+                          child: TextButton(
+                            onPressed: _isSaving
+                                ? null
+                                : () {
+                                    HapticFeedback.selectionClick();
+                                    widget.onRequestSignIn!();
+                                  },
+                            child: Text(
+                              'Already have a profile? Sign in with your phone',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.outfit(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.blue,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (widget.onRequestSignIn != null)
+                        const SizedBox(height: 8),
+
+                      // ── Agreement checkbox ────────────────────────────
+                      _AgreementRow(
+                        value: _agreed,
+                        onChanged: (v) => setState(() => _agreed = v ?? false),
+                      ),
+
+                      const SizedBox(height: 30),
+
+                      // ── Submit button ─────────────────────────────────
+                      GestureDetector(
+                        onTap: _isSaving ? null : _submit,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          decoration: BoxDecoration(
+                            gradient: _agreed
+                                ? const LinearGradient(
+                                    colors: [
+                                      Color(0xFFFF1A35),
+                                      Color(0xFFD0021B),
+                                      Color(0xFF9B0015),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  )
+                                : null,
+                            color: _agreed ? null : const Color(0xFFF0F2F5),
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: _agreed
+                                ? [
+                                    BoxShadow(
+                                      color:
+                                          AppTheme.crimson.withOpacity(0.48),
+                                      blurRadius: 30,
+                                      offset: const Offset(0, 12),
+                                    ),
+                                  ]
+                                : [],
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (_isSaving)
+                                const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        color: Colors.white))
+                              else
+                                Icon(
+                                  Icons.how_to_reg_rounded,
+                                  color: _agreed
+                                      ? Colors.white
+                                      : AppTheme.textLight,
+                                  size: 22,
+                                ),
+                              const SizedBox(width: 12),
+                              Text(
+                                _isSaving
+                                    ? 'REGISTERING...'
+                                    : 'CREATE MY PROFILE',
+                                style: GoogleFonts.outfit(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: _agreed
+                                      ? Colors.white
+                                      : AppTheme.textLight,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Header ────────────────────────────────────────────────────────────────
+  Widget _buildHeader() {
+    return Stack(
+      children: [
+        // Background gradient
+        Container(
+          height: 300,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF0D1B2A), Color(0xFF1A2E47), Color(0xFF0F3460)],
+            ),
+          ),
+        ),
+        // Red glow
+        Positioned(
+          right: -50,
+          top: -50,
+          child: Container(
+            width: 260,
+            height: 260,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(colors: [
+                AppTheme.crimson.withOpacity(0.28),
+                Colors.transparent,
+              ]),
+            ),
+          ),
+        ),
+        // Blue glow
+        Positioned(
+          left: -40,
+          bottom: 10,
+          child: Container(
+            width: 180,
+            height: 180,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(colors: [
+                AppTheme.blue.withOpacity(0.22),
+                Colors.transparent,
+              ]),
+            ),
+          ),
+        ),
+        // Content
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(28, 28, 28, 36),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Logo + app name
+                Row(children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFF1A35), Color(0xFFD0021B)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.crimson.withOpacity(0.5),
+                          blurRadius: 18,
+                          offset: const Offset(0, 7),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.add, color: Colors.white, size: 26),
+                  ),
+                  const SizedBox(width: 14),
+                  Text(
+                    'ResQmove',
+                    style: GoogleFonts.outfit(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 28),
+                // Badge
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.crimson.withOpacity(0.22),
+                    borderRadius: BorderRadius.circular(10),
+                    border:
+                        Border.all(color: AppTheme.crimson.withOpacity(0.35)),
+                  ),
+                  child: Text(
+                    '📋  QUICK REGISTRATION',
+                    style: GoogleFonts.outfit(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFFFF6B6B),
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Create Your\nSafety Profile',
+                  style: GoogleFonts.outfit(
+                    fontSize: 34,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    height: 1.1,
+                    letterSpacing: -1.0,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Register your details so we can reach you faster '
+                  'in an emergency — even if GPS is slow or unavailable.',
+                  style: GoogleFonts.outfit(
+                    fontSize: 13,
+                    color: Colors.white60,
+                    height: 1.55,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Validators ────────────────────────────────────────────────────────────
+  String? _required(String? v) =>
+      (v == null || v.trim().isEmpty) ? 'This field is required' : null;
+
+  String? _requiredPhone(String? v) {
+    if (v == null || v.trim().isEmpty) return 'Phone number is required';
+    if (v.trim().length < 7) return 'Enter a valid phone number';
+    return null;
+  }
+
+  Widget _divider() => Container(
+        height: 1,
+        color: AppTheme.border,
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+      );
+}
+
+// ─────────────────────────────────────────────
+//  REUSABLE WIDGETS
+// ─────────────────────────────────────────────
+
+class _SectionLabel extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _SectionLabel(
+      {required this.icon, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Container(
+        padding: const EdgeInsets.all(9),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.10),
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(color: color.withOpacity(0.20)),
+        ),
+        child: Icon(icon, color: color, size: 16),
+      ),
+      const SizedBox(width: 12),
+      Text(
+        label,
+        style: GoogleFonts.outfit(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.textDark),
+      ),
+    ]);
+  }
+}
+
+class _FormCard extends StatelessWidget {
+  final List<Widget> children;
+  final Color? accentColor;
+
+  const _FormCard({required this.children, this.accentColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: accentColor?.withOpacity(0.18) ?? AppTheme.border,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(children: children),
+    );
+  }
+}
+
+class _Field extends StatelessWidget {
+  final TextEditingController ctrl;
+  final String label;
+  final String hint;
+  final IconData icon;
+  final TextInputType keyboard;
+  final String? Function(String?)? validator;
+  final int maxLines;
+  final bool isLast;
+  final Widget? prefix;
+
+  const _Field({
+    required this.ctrl,
+    required this.label,
+    required this.hint,
+    required this.icon,
+    this.keyboard = TextInputType.text,
+    this.validator,
+    this.maxLines = 1,
+    this.isLast = false,
+    this.prefix,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(18, 18, 18, isLast ? 18 : 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceLight,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Icon(icon, color: AppTheme.textLight, size: 19),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: GoogleFonts.outfit(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textLight,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ),
+                      if (prefix != null) prefix!,
+                    ]),
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: ctrl,
+                      keyboardType: keyboard,
+                      maxLines: maxLines,
+                      validator: validator,
+                      style: GoogleFonts.outfit(
+                        fontSize: 15,
+                        color: AppTheme.textDark,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: hint,
+                        hintStyle: GoogleFonts.outfit(
+                            fontSize: 15, color: AppTheme.textLight),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                        errorStyle: GoogleFonts.outfit(
+                            fontSize: 11, color: AppTheme.crimson),
+                      ),
+                    ),
+                  ]),
+            ),
+          ],
+        ),
+        if (!isLast) const SizedBox(height: 8),
+      ]),
+    );
+  }
+}
+
+/// Small badge prefix for phone fields
+class _PhonePrefix extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _PhonePrefix(
+      {required this.label, this.color = const Color(0xFF1E88E5)});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.outfit(
+          fontSize: 8.5,
+          fontWeight: FontWeight.w800,
+          color: color,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoNote extends StatelessWidget {
+  final String text;
+  const _InfoNote({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.blue.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.blue.withOpacity(0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded,
+              color: AppTheme.blue, size: 15),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: GoogleFonts.outfit(
+                fontSize: 12,
+                color: AppTheme.blue,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GpsNoticeCard extends StatelessWidget {
+  const _GpsNoticeCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1A1A2E), Color(0xFF0F3460)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: const Color(0xFF7CFC00).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                  color: const Color(0xFF7CFC00).withOpacity(0.25)),
+            ),
+            child: const Icon(Icons.gps_fixed_rounded,
+                color: Color(0xFF7CFC00), size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'GPS + Profile = Faster Response',
+                  style: GoogleFonts.outfit(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Your GPS location is shared automatically when you request help. '
+                  'Your profile details serve as a reliable backup when GPS is slow or inaccurate.',
+                  style: GoogleFonts.outfit(
+                    fontSize: 11.5,
+                    color: Colors.white60,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AgreementRow extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool?> onChanged;
+
+  const _AgreementRow({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => onChanged(!value),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: value ? AppTheme.crimson : Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: value ? AppTheme.crimson : AppTheme.border,
+                width: 1.5,
+              ),
+              boxShadow: value
+                  ? [
+                      BoxShadow(
+                        color: AppTheme.crimson.withOpacity(0.35),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      )
+                    ]
+                  : [],
+            ),
+            child: value
+                ? const Icon(Icons.check_rounded,
+                    color: Colors.white, size: 15)
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'I agree that this information will be used by ResQmove to '
+              'facilitate emergency ambulance services on my behalf.',
+              style: GoogleFonts.outfit(
+                fontSize: 12.5,
+                color: AppTheme.textMid,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

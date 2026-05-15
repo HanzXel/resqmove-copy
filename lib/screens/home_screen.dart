@@ -1,10 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
-import '../widgets/pulse_button.dart';
 import '../services/request_service.dart';
+import '../services/registration_service.dart';
 import 'driver/driver_login_screen.dart';
+import 'services_screen.dart';
+
+// ─────────────────────────────────────────────
+//  PREPAREDNESS SHARE COPY (barangay-aware)
+// ─────────────────────────────────────────────
+
+String _preparednessShareBody(String? barangay) {
+  final b = (barangay != null && barangay.isNotEmpty) ? barangay : 'our barangay';
+  return '🚑 ResQmove is now available in $b!\n\n'
+      'Download the app now so you\'re ready when an emergency happens. '
+      'You can call for an ambulance in seconds.\n\n'
+      '✅ Free to download\n'
+      '✅ Register your address for faster dispatch\n'
+      '✅ Real-time ambulance tracking\n\n'
+      'Install it now. Share with family & neighbors in $b.';
+}
+
+Future<({double lat, double lng, String address})> _resolvePickupForRequest() async {
+  const double fallbackLat = 10.3220;
+  const double fallbackLng = 123.8920;
+  final reg = await RegistrationService.instance.loadRegistration();
+  final savedAddress = reg?.address.trim();
+  String address = (savedAddress != null && savedAddress.isNotEmpty)
+      ? savedAddress
+      : 'Cebu City, PH';
+
+  var lat = fallbackLat;
+  var lng = fallbackLng;
+
+  var perm = await Geolocator.checkPermission();
+  if (perm == LocationPermission.denied) {
+    perm = await Geolocator.requestPermission();
+  }
+  if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+    return (lat: lat, lng: lng, address: address);
+  }
+
+  try {
+    final pos = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 10),
+      ),
+    );
+    lat = pos.latitude;
+    lng = pos.longitude;
+  } catch (_) {}
+
+  return (lat: lat, lng: lng, address: address);
+}
 
 // ─────────────────────────────────────────────
 //  REQUEST AMBULANCE MODAL
@@ -40,20 +93,13 @@ void _showRequestAmbulanceModal(BuildContext context) {
             HapticFeedback.heavyImpact();
             setModalState(() => isSubmitting = true);
 
-            // TODO: Replace with real GPS coords once geolocator is added.
-            // Example:
-            //   final pos = await Geolocator.getCurrentPosition();
-            //   final lat = pos.latitude;
-            //   final lng = pos.longitude;
-            const double lat     = 10.3220;
-            const double lng     = 123.8920;
-            const String address = 'Cebu City, PH';
+            final loc = await _resolvePickupForRequest();
 
             final result = await RequestService.instance.submitRequest(
               emergencyTypeLabel: selectedEmergencyType!,
-              latitude: lat,
-              longitude: lng,
-              address: address,
+              latitude: loc.lat,
+              longitude: loc.lng,
+              address: loc.address,
             );
 
             if (!ctx.mounted) return;
@@ -273,8 +319,31 @@ void _showRequestAmbulanceModal(BuildContext context) {
 //  HOME SCREEN
 // ─────────────────────────────────────────────
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _preparednessVisible = true;
+
+  // ── Barangay loaded from registered profile ──────────────────────────────
+  String? _userBarangay;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBarangay();
+  }
+
+  Future<void> _loadBarangay() async {
+    final data = await RegistrationService.instance.loadRegistration();
+    if (mounted && data != null && data.barangay.isNotEmpty) {
+      setState(() => _userBarangay = data.barangay);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -284,6 +353,12 @@ class HomeScreen extends StatelessWidget {
         child: Column(
           children: [
             _HeroSection(),
+            // ── Emergency Preparedness Banner (dismissible) ──
+            if (_preparednessVisible)
+              _EmergencyPreparednessBanner(
+                barangay: _userBarangay,
+                onDismiss: () => setState(() => _preparednessVisible = false),
+              ),
             _QuickAccessSection(),
             _StatsBar(),
             _ServicesSection(),
@@ -292,6 +367,947 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EMERGENCY PREPAREDNESS BANNER  (Panelist Item #2)
+//
+//  Shows a barangay-specific community notice encouraging
+//  residents to install the app before an emergency happens.
+//  The banner is dismissible and re-shown on next launch until
+//  the user explicitly closes it.
+// ═══════════════════════════════════════════════════════════
+
+class _EmergencyPreparednessBanner extends StatefulWidget {
+  final VoidCallback onDismiss;
+
+  /// The registered barangay of the current user.
+  /// When provided, the banner message is personalised to that barangay.
+  final String? barangay;
+
+  const _EmergencyPreparednessBanner({
+    required this.onDismiss,
+    this.barangay,
+  });
+
+  @override
+  State<_EmergencyPreparednessBanner> createState() =>
+      _EmergencyPreparednessBannerState();
+}
+
+class _EmergencyPreparednessBannerState
+    extends State<_EmergencyPreparednessBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shimmerCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _shimmerCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Returns the barangay display name, falling back to a generic label.
+  String get _barangayLabel =>
+      (widget.barangay != null && widget.barangay!.isNotEmpty)
+          ? widget.barangay!
+          : 'your barangay';
+
+  /// Whether we have an actual registered barangay.
+  bool get _hasBarangay =>
+      widget.barangay != null && widget.barangay!.isNotEmpty;
+
+  void _showShareSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ShareCommunitySheet(barangay: widget.barangay),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      child: AnimatedBuilder(
+        animation: _shimmerCtrl,
+        builder: (context, child) {
+          final shimmerOffset = _shimmerCtrl.value;
+          return Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFFFF6B35).withOpacity(0.25 + shimmerOffset * 0.1),
+                  const Color(0xFFFF8C00).withOpacity(0.18),
+                  const Color(0xFFFF6B35).withOpacity(0.25 + shimmerOffset * 0.1),
+                ],
+                stops: [0.0, shimmerOffset, 1.0],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFFF8C00).withOpacity(0.18),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(2),
+            child: child,
+          );
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(26),
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1A1A2E), Color(0xFF16213E), Color(0xFF0F3460)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Stack(
+            children: [
+              // Background decorations
+              Positioned(
+                right: -20, top: -20,
+                child: Container(
+                  width: 130, height: 130,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [const Color(0xFFFF8C00).withOpacity(0.18), Colors.transparent],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: -10, bottom: -10,
+                child: Container(
+                  width: 90, height: 90,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [const Color(0xFF00C9FF).withOpacity(0.12), Colors.transparent],
+                    ),
+                  ),
+                ),
+              ),
+
+              // Content
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Header row ───────────────────────────────────────
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _PulsingOrangeIcon(),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Barangay badge (shows actual barangay if registered)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFF8C00).withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFFF8C00).withOpacity(0.35)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.location_city_rounded,
+                                      size: 10,
+                                      color: Color(0xFFFF8C00),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        _hasBarangay
+                                            ? '📢  ${_barangayLabel.toUpperCase()}'
+                                            : '⚠️  COMMUNITY NOTICE',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.outfit(
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.w800,
+                                          color: const Color(0xFFFF8C00),
+                                          letterSpacing: 1.0,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 7),
+                              Text(
+                                'Be Ready Before\nAn Emergency Strikes',
+                                style: GoogleFonts.outfit(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  height: 1.2,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Dismiss button
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            widget.onDismiss();
+                          },
+                          child: Container(
+                            width: 30, height: 30,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.white.withOpacity(0.12)),
+                            ),
+                            child: const Icon(Icons.close_rounded, color: Colors.white54, size: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // ── Body text (personalised per barangay) ─────────────
+                    Text(
+                      _hasBarangay
+                          ? 'ResQmove is now available in $_barangayLabel. '
+                            'Install the app in advance so you can call for an ambulance instantly — '
+                            'share this with your neighbors and barangay officials.'
+                          : 'ResQmove is now available in your barangay. Install the app in advance so you can call for an ambulance instantly when every second counts.',
+                      style: GoogleFonts.outfit(
+                        fontSize: 12.5,
+                        color: Colors.white70,
+                        height: 1.55,
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // ── How-to tip chips ──────────────────────────────────
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: const [
+                        _TipChip(icon: Icons.download_rounded,        label: 'Install now',       color: Color(0xFF00C9FF)),
+                        _TipChip(icon: Icons.person_add_rounded,      label: 'Register profile',  color: Color(0xFF7CFC00)),
+                        _TipChip(icon: Icons.share_rounded,           label: 'Share with others', color: Color(0xFFFF8C00)),
+                        _TipChip(icon: Icons.location_on_rounded,     label: 'Enable GPS',        color: Color(0xFFD4A5FF)),
+                      ],
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // ── CTA buttons ───────────────────────────────────────
+                    Row(
+                      children: [
+                        // Spread the word — opens share sheet with barangay-personalised message
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              HapticFeedback.mediumImpact();
+                              _showShareSheet(context);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFFFF8C00), Color(0xFFFF6B35)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFFF8C00).withOpacity(0.40),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 6),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.campaign_rounded, color: Colors.white, size: 17),
+                                  const SizedBox(width: 7),
+                                  Text(
+                                    'Spread the Word',
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        // Learn more
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            _showPreparednessGuide(context);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.09),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white.withOpacity(0.16)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.info_outline_rounded, color: Colors.white70, size: 16),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Learn more',
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Pulsing orange icon ───
+class _PulsingOrangeIcon extends StatefulWidget {
+  @override
+  State<_PulsingOrangeIcon> createState() => _PulsingOrangeIconState();
+}
+
+class _PulsingOrangeIconState extends State<_PulsingOrangeIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) => Container(
+        width: 52, height: 52,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: const Color(0xFFFF8C00).withOpacity(0.15 + _c.value * 0.10),
+          border: Border.all(
+            color: const Color(0xFFFF8C00).withOpacity(0.3 + _c.value * 0.2),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFFF8C00).withOpacity(0.2 + _c.value * 0.15),
+              blurRadius: 12 + _c.value * 8,
+            ),
+          ],
+        ),
+        child: const Icon(Icons.health_and_safety_rounded,
+            color: Color(0xFFFF8C00), size: 26),
+      ),
+    );
+  }
+}
+
+// ─── Tip chip ───
+class _TipChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  const _TipChip({required this.icon, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 5),
+          Text(label,
+              style: GoogleFonts.outfit(
+                  fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Preparedness guide bottom sheet ───
+void _showPreparednessGuide(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      maxChildSize: 0.92,
+      minChildSize: 0.5,
+      builder: (_, ctrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 14),
+              width: 44, height: 5,
+              decoration: BoxDecoration(
+                  color: AppTheme.border, borderRadius: BorderRadius.circular(3)),
+            ),
+            // Header
+            Container(
+              margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1A1A2E), Color(0xFF0F3460)],
+                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 52, height: 52,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF8C00).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFFF8C00).withOpacity(0.35)),
+                  ),
+                  child: const Icon(Icons.health_and_safety_rounded,
+                      color: Color(0xFFFF8C00), size: 26),
+                ),
+                const SizedBox(width: 14),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Emergency Preparedness',
+                      style: GoogleFonts.outfit(
+                          fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+                  Text('How to use ResQmove before an emergency',
+                      style: GoogleFonts.outfit(fontSize: 11, color: Colors.white60)),
+                ])),
+              ]),
+            ),
+            // Steps
+            Expanded(
+              child: ListView(
+                controller: ctrl,
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+                children: const [
+                  _GuideStep(
+                    number: '1',
+                    title: 'Install the App Now',
+                    body: 'Download ResQmove and keep it on your home screen. During an emergency, you won\'t have time to search for an app.',
+                    icon: Icons.download_rounded,
+                    color: Color(0xFF00C9FF),
+                  ),
+                  _GuideStep(
+                    number: '2',
+                    title: 'Register Your Profile',
+                    body: 'Sign up with your basic details and home address. This speeds up dispatch — especially when GPS is slow or inaccurate.',
+                    icon: Icons.person_add_rounded,
+                    color: Color(0xFF7CFC00),
+                  ),
+                  _GuideStep(
+                    number: '3',
+                    title: 'Enable Location Access',
+                    body: 'Allow ResQmove to access your GPS. Your exact location is sent to the command center the moment you request help.',
+                    icon: Icons.location_on_rounded,
+                    color: Color(0xFFD4A5FF),
+                  ),
+                  _GuideStep(
+                    number: '4',
+                    title: 'Save Emergency Contacts',
+                    body: 'Add a secondary contact in your profile — a family member or neighbor who can be reached if you are unable to communicate.',
+                    icon: Icons.contacts_rounded,
+                    color: Color(0xFFFF8C00),
+                  ),
+                  _GuideStep(
+                    number: '5',
+                    title: 'Share with Your Barangay',
+                    body: 'Tell your neighbors, family, and barangay officials about ResQmove. The more residents who install it, the faster emergencies can be handled.',
+                    icon: Icons.campaign_rounded,
+                    color: AppTheme.crimson,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _GuideStep extends StatelessWidget {
+  final String number, title, body;
+  final IconData icon;
+  final Color color;
+  const _GuideStep({
+    required this.number, required this.title, required this.body,
+    required this.icon, required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: color.withOpacity(0.18)),
+        boxShadow: [
+          BoxShadow(color: color.withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 5)),
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 46, height: 46,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withOpacity(0.25)),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(
+                  width: 22, height: 22,
+                  decoration: BoxDecoration(
+                    color: color, borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Center(
+                    child: Text(number,
+                        style: GoogleFonts.outfit(
+                            fontSize: 11, fontWeight: FontWeight.w900, color: Colors.white)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(title,
+                      style: GoogleFonts.outfit(
+                          fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+                ),
+              ]),
+              const SizedBox(height: 7),
+              Text(body,
+                  style: GoogleFonts.outfit(
+                      fontSize: 12.5, color: AppTheme.textMid, height: 1.5)),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Share with community sheet ───
+class _ShareCommunitySheet extends StatelessWidget {
+  /// Optional barangay name — personalises the share message.
+  final String? barangay;
+  const _ShareCommunitySheet({this.barangay});
+
+  String get _barangayLabel =>
+      (barangay != null && barangay!.isNotEmpty) ? barangay! : 'our barangay';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.only(bottom: 40),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 14),
+            width: 44, height: 5,
+            decoration: BoxDecoration(
+                color: AppTheme.border, borderRadius: BorderRadius.circular(3)),
+          ),
+          // Header
+          Container(
+            margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFF8C00), Color(0xFFFF6B35)],
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFFF8C00).withOpacity(0.35),
+                  blurRadius: 20, offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(children: [
+              Container(
+                width: 52, height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withOpacity(0.3)),
+                ),
+                child: const Icon(Icons.campaign_rounded, color: Colors.white, size: 28),
+              ),
+              const SizedBox(width: 14),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Spread the Word',
+                    style: GoogleFonts.outfit(
+                        fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+                Text('Help $_barangayLabel stay prepared',
+                    style: GoogleFonts.outfit(fontSize: 12, color: Colors.white70)),
+              ])),
+            ]),
+          ),
+          const SizedBox(height: 22),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              'Share this message with neighbors, family, and barangay officials:',
+              style: GoogleFonts.outfit(
+                  fontSize: 13, color: AppTheme.textMid, fontWeight: FontWeight.w500),
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Message preview card — barangay-personalised
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7F9FC),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Container(
+                    width: 28, height: 28,
+                    decoration: BoxDecoration(
+                      color: AppTheme.crimson,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: const Icon(Icons.add, color: Colors.white, size: 16),
+                  ),
+                  const SizedBox(width: 8),
+                  Text('ResQmove',
+                      style: GoogleFonts.outfit(
+                          fontSize: 13, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+                ]),
+                const SizedBox(height: 10),
+                Text(
+                  _preparednessShareBody(barangay),
+                  style: GoogleFonts.outfit(
+                      fontSize: 12.5, color: AppTheme.textMid, height: 1.55),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          // Share channel buttons
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(children: [
+              _ShareChannelButton(
+                icon: Icons.facebook_rounded,
+                label: 'Share on Facebook',
+                color: const Color(0xFF1877F2),
+                onTap: () async {
+                  final text = _preparednessShareBody(barangay);
+                  Navigator.pop(context);
+                  await Share.share(text, subject: 'ResQmove — $_barangayLabel');
+                },
+              ),
+              const SizedBox(height: 10),
+              _ShareChannelButton(
+                icon: Icons.chat_bubble_rounded,
+                label: 'Share via SMS / Viber',
+                color: const Color(0xFF7360F2),
+                onTap: () async {
+                  final text = _preparednessShareBody(barangay);
+                  Navigator.pop(context);
+                  final uri = Uri(scheme: 'sms', queryParameters: {'body': text});
+                  try {
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.platformDefault);
+                    } else {
+                      await Share.share(text);
+                    }
+                  } catch (_) {
+                    await Share.share(text);
+                  }
+                },
+              ),
+              const SizedBox(height: 10),
+              _ShareChannelButton(
+                icon: Icons.share_rounded,
+                label: 'More sharing options',
+                color: AppTheme.textMid,
+                onTap: () async {
+                  final text = _preparednessShareBody(barangay);
+                  Navigator.pop(context);
+                  await Share.share(text);
+                },
+              ),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShareChannelButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final Future<void> Function() onTap;
+  const _ShareChannelButton({
+    required this.icon, required this.label,
+    required this.color, required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        HapticFeedback.selectionClick();
+        await onTap();
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.07),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withOpacity(0.22)),
+        ),
+        child: Row(children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Text(label,
+              style: GoogleFonts.outfit(
+                  fontSize: 14, fontWeight: FontWeight.w700, color: color)),
+          const Spacer(),
+          Icon(Icons.arrow_forward_ios_rounded, size: 13, color: color.withOpacity(0.6)),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Home hero: green (transport) + red (emergency) — Panel item #4 ───
+class _HomeDualActionButtons extends StatelessWidget {
+  final VoidCallback onNonEmergency;
+  final VoidCallback onEmergency;
+
+  const _HomeDualActionButtons({
+    required this.onNonEmergency,
+    required this.onEmergency,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GestureDetector(
+          onTap: () {
+            HapticFeedback.mediumImpact();
+            onNonEmergency();
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF00A86B), Color(0xFF00C851), Color(0xFF009952)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.success.withOpacity(0.42),
+                  blurRadius: 22,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.event_available_rounded,
+                      color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'NON-EMERGENCY',
+                        style: GoogleFonts.outfit(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      Text(
+                        'Transport booking — pick date, time & locations',
+                        style: GoogleFonts.outfit(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white.withOpacity(0.88),
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_ios_rounded,
+                    color: Colors.white.withOpacity(0.85), size: 14),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        GestureDetector(
+          onTap: () {
+            HapticFeedback.heavyImpact();
+            onEmergency();
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFF1A35), Color(0xFFD0021B), Color(0xFF9B0015)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.crimson.withOpacity(0.45),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withOpacity(0.25)),
+                  ),
+                  child: const Icon(Icons.emergency_rounded,
+                      color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'EMERGENCY',
+                        style: GoogleFonts.outfit(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                      Text(
+                        'Immediate help — request ambulance now',
+                        style: GoogleFonts.outfit(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white70,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_ios_rounded,
+                    color: Colors.white.withOpacity(0.85), size: 14),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -370,7 +1386,7 @@ class _HeroSection extends StatelessWidget {
                   const SizedBox(height: 42),
                   _HeroHeadline(),
                   const SizedBox(height: 18),
-                  // Location pill — TODO: replace with real GPS city name
+                  // Location pill
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -405,12 +1421,17 @@ class _HeroSection extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 38),
-                  // Main CTA — calls the modal
-                  PulseButton(
-                    label: 'REQUEST AMBULANCE',
-                    icon: Icons.airport_shuttle_rounded,
-                    onTap: () => _showRequestAmbulanceModal(context),
+                  const SizedBox(height: 28),
+                  _HomeDualActionButtons(
+                    onNonEmergency: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const NonEmergencyBookingScreen(),
+                        ),
+                      );
+                    },
+                    onEmergency: () => _showRequestAmbulanceModal(context),
                   ),
                   const SizedBox(height: 20),
                   // Driver link
@@ -609,7 +1630,7 @@ class _QuickAccessSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 10, 24, 0),
+      padding: const EdgeInsets.fromLTRB(24, 26, 24, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -683,10 +1704,7 @@ class _QuickCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-//  STATS BAR — fed by RequestService.getAppStats()
-//  TODO: Wrap HomeScreen in a StatefulWidget and call
-//        RequestService.instance.getAppStats() in initState()
-//        to populate these values from the database.
+//  STATS BAR
 // ─────────────────────────────────────────────
 
 class _StatsBar extends StatelessWidget {
@@ -859,7 +1877,6 @@ class _ServiceCard extends StatelessWidget {
 
 // ─────────────────────────────────────────────
 //  HOTLINE SECTION
-//  TODO: Wire to a GET /hotline endpoint to load the real number.
 // ─────────────────────────────────────────────
 
 class _HotlineSection extends StatelessWidget {

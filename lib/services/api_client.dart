@@ -11,29 +11,26 @@
 //  2. All services (AuthService, RequestService, etc.) already use
 //     this client — no other changes needed across the codebase.
 //
-//  CURRENT STATE: Runs in mock mode (no real server needed yet).
-//  Set [mockMode = false] once the backend is ready.
+//  Tokens are persisted with SharedPreferences when not using mock API.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../config/app_config.dart';
+import 'app_messenger.dart';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
-
-/// Base URL of the backend API.
-/// Your classmate (DB side) only needs to change this one constant.
-const String _baseUrl = 'http://YOUR_SERVER_IP:8000/api/v1';
-
-/// Toggle mock mode ON during development (no server needed).
-/// Set to false once the real backend is live.
-const bool _mockMode = true;
+//  See lib/config/app_config.dart — use --dart-define for API_BASE_URL / USE_MOCK_API.
 
 /// Default timeout for all HTTP requests.
 const Duration _timeout = Duration(seconds: 15);
 
-// ── Token Storage (in-memory; swap for shared_preferences in production) ──────
+// ── Token Storage (memory + SharedPreferences when live) ─────────────────────
 
 class _TokenStore {
   static String? _accessToken;
@@ -88,15 +85,62 @@ class ApiClient {
   ApiClient._();
   static final ApiClient instance = ApiClient._();
 
+  static const _prefsAccess = 'resqmove_access_token';
+  static const _prefsRefresh = 'resqmove_refresh_token';
+
+  /// Call from `main()` before `runApp` so authenticated requests work on cold start.
+  Future<void> restoreSession() async {
+    if (AppConfig.useMockApi) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final access = prefs.getString(_prefsAccess);
+      final refresh = prefs.getString(_prefsRefresh);
+      if (access != null && access.isNotEmpty) {
+        _TokenStore.setTokens(access: access, refresh: refresh);
+      }
+    } catch (_) {}
+  }
+
   // ── Auth token helpers ─────────────────────────────────────────────────────
 
   void setTokens({required String access, String? refresh}) {
     _TokenStore.setTokens(access: access, refresh: refresh);
+    unawaited(_persistTokensToDisk());
   }
 
-  void clearTokens() => _TokenStore.clear();
+  void clearTokens() {
+    _TokenStore.clear();
+    unawaited(_clearTokensFromDisk());
+  }
+
+  Future<void> _persistTokensToDisk() async {
+    if (AppConfig.useMockApi) return;
+    final access = _TokenStore.accessToken;
+    if (access == null || access.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsAccess, access);
+      final refresh = _TokenStore.refreshToken;
+      if (refresh != null && refresh.isNotEmpty) {
+        await prefs.setString(_prefsRefresh, refresh);
+      } else {
+        await prefs.remove(_prefsRefresh);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _clearTokensFromDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefsAccess);
+      await prefs.remove(_prefsRefresh);
+    } catch (_) {}
+  }
 
   bool get isAuthenticated => _TokenStore.accessToken != null;
+
+  /// JWT for Socket.io `subscribe_tracking` (same value as the Bearer header).
+  String? get accessToken => _TokenStore.accessToken;
 
   // ── Request headers ────────────────────────────────────────────────────────
 
@@ -120,7 +164,7 @@ class ApiClient {
     Map<String, String>? queryParams,
     bool auth = true,
   }) async {
-    if (_mockMode) {
+    if (AppConfig.useMockApi) {
       return _mockResponse(path, method: 'GET');
     }
 
@@ -140,8 +184,9 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? body,
     bool auth = true,
+    Duration? timeout,
   }) async {
-    if (_mockMode) {
+    if (AppConfig.useMockApi) {
       return _mockResponse(path, method: 'POST', body: body);
     }
 
@@ -153,7 +198,7 @@ class ApiClient {
             headers: _headers(auth: auth),
             body: body != null ? jsonEncode(body) : null,
           )
-          .timeout(_timeout);
+          .timeout(timeout ?? _timeout);
       return _parseResponse(response);
     } catch (e) {
       throw _handleError(e);
@@ -165,8 +210,9 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? body,
     bool auth = true,
+    Duration? timeout,
   }) async {
-    if (_mockMode) {
+    if (AppConfig.useMockApi) {
       return _mockResponse(path, method: 'PUT', body: body);
     }
 
@@ -178,7 +224,7 @@ class ApiClient {
             headers: _headers(auth: auth),
             body: body != null ? jsonEncode(body) : null,
           )
-          .timeout(_timeout);
+          .timeout(timeout ?? _timeout);
       return _parseResponse(response);
     } catch (e) {
       throw _handleError(e);
@@ -191,7 +237,7 @@ class ApiClient {
     Map<String, dynamic>? body,
     bool auth = true,
   }) async {
-    if (_mockMode) {
+    if (AppConfig.useMockApi) {
       return _mockResponse(path, method: 'PATCH', body: body);
     }
 
@@ -215,7 +261,7 @@ class ApiClient {
     String path, {
     bool auth = true,
   }) async {
-    if (_mockMode) {
+    if (AppConfig.useMockApi) {
       return _mockResponse(path, method: 'DELETE');
     }
 
@@ -234,7 +280,7 @@ class ApiClient {
 
   Uri _buildUri(String path, Map<String, String>? queryParams) {
     final fullPath = path.startsWith('/') ? path : '/$path';
-    final base = Uri.parse('$_baseUrl$fullPath');
+    final base = Uri.parse('${AppConfig.apiBaseUrl}$fullPath');
     if (queryParams != null && queryParams.isNotEmpty) {
       return base.replace(queryParameters: queryParams);
     }
@@ -278,9 +324,18 @@ class ApiClient {
   ApiException _handleError(dynamic error) {
     if (error is ApiException) return error;
     if (error is SocketException) {
+      AppMessenger.showErrorThrottled(
+        'No internet connection. Check your network and try again.',
+      );
       return const ApiException(
         message: 'No internet connection. Please check your network.',
       );
+    }
+    if (error is TimeoutException) {
+      AppMessenger.showErrorThrottled(
+        'The server took too long to respond.',
+      );
+      return const ApiException(message: 'Request timed out. Please try again.');
     }
     if (error is HttpException) {
       return ApiException(message: 'Network error: ${error.message}');
@@ -291,7 +346,7 @@ class ApiClient {
   // ── Mock mode ──────────────────────────────────────────────────────────────
   //  Returns empty success responses so UI works without a server.
   //  Your classmate's backend will replace this automatically
-  //  once _mockMode is set to false.
+  //  when AppConfig.useMockApi is false.
 
   Future<ApiResponse<Map<String, dynamic>>> _mockResponse(
     String path, {

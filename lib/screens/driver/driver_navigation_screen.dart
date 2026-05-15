@@ -1,9 +1,15 @@
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
+import 'dart:async';
+
+import '../../config/app_config.dart';
 import '../../theme/app_theme.dart';
+import '../../services/tracking_service.dart';
+import '../../services/routing_service.dart';
 import 'driver_active_trip_screen.dart';
 
 class DriverNavigationScreen extends StatefulWidget {
@@ -16,9 +22,189 @@ class DriverNavigationScreen extends StatefulWidget {
 
 class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
   final MapController _mapController = MapController();
+  Timer? _locationTimer;
+  Timer? _routeRefreshDebounce;
 
-  static const LatLng _driverPos = LatLng(10.3220, 123.8920);
-  static const LatLng _patientPos = LatLng(10.3157, 123.8854);
+  late LatLng _patientPos;
+  LatLng _driverPos = const LatLng(10.3220, 123.8920);
+
+  List<LatLng> _routePolyline = const [];
+  bool _routingLoading = false;
+  String _etaLabel = '--';
+  String _distLabel = '--';
+
+  @override
+  void initState() {
+    super.initState();
+    _patientPos = _parsePatientLatLng();
+    _routePolyline = [_driverPos, _patientPos];
+    unawaited(_bootstrapNav());
+    if (!AppConfig.useMockApi) {
+      _locationTimer = Timer.periodic(const Duration(seconds: 10), (_) => _pushGps());
+      unawaited(_pushGps());
+    }
+  }
+
+  Future<void> _bootstrapNav() async {
+    await _fetchDriverLocationOnce();
+    await _loadRoute();
+  }
+
+  LatLng _parsePatientLatLng() {
+    final pl = widget.request['pickup_location'];
+    if (pl is Map) {
+      final lat = pl['latitude'];
+      final lng = pl['longitude'];
+      if (lat is num && lng is num) {
+        return LatLng(lat.toDouble(), lng.toDouble());
+      }
+    }
+    return const LatLng(10.3157, 123.8854);
+  }
+
+  Future<void> _fetchDriverLocationOnce() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _driverPos = LatLng(pos.latitude, pos.longitude);
+        });
+      }
+    } catch (_) {}
+  }
+
+  String get _emergencyTitle =>
+      (widget.request['emergencyType'] ?? widget.request['emergency_type'] ?? 'Emergency')
+          .toString();
+
+  String get _addressLine {
+    final pl = widget.request['pickup_location'];
+    if (pl is Map && pl['address'] != null) {
+      final a = pl['address'].toString().trim();
+      if (a.isNotEmpty) return a;
+    }
+    return (widget.request['pickup_address'] ??
+            widget.request['location'] ??
+            'Unknown')
+        .toString();
+  }
+
+  LatLng get _mapCenter => LatLng(
+        (_patientPos.latitude + _driverPos.latitude) / 2,
+        (_patientPos.longitude + _driverPos.longitude) / 2,
+      );
+
+  Future<void> _pushGps() async {
+    final id = widget.request['id']?.toString();
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _driverPos = LatLng(pos.latitude, pos.longitude);
+        });
+      }
+      await TrackingService.instance.pushDriverLocation(
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        activeRequestId: id,
+      );
+      _scheduleRouteRefresh();
+    } catch (_) {}
+  }
+
+  Future<void> _loadRoute() async {
+    if (AppConfig.useMockApi) {
+      if (mounted) {
+        setState(() {
+          _routePolyline = [_driverPos, _patientPos];
+          _applyStraightLineDistance();
+          _etaLabel = '--';
+        });
+      }
+      return;
+    }
+
+    if (mounted) setState(() => _routingLoading = true);
+    final route =
+        await RoutingService.instance.fetchDrivingRoute(_driverPos, _patientPos);
+    if (!mounted) return;
+
+    if (route != null && route.points.length >= 2) {
+      setState(() {
+        _routingLoading = false;
+        _routePolyline = route.points;
+        _distLabel = _formatDistanceKm(route.distanceMeters / 1000.0);
+        _etaLabel = _formatDriveEta(route.durationSeconds);
+      });
+    } else {
+      setState(() {
+        _routingLoading = false;
+        _routePolyline = [_driverPos, _patientPos];
+        _applyStraightLineDistance();
+        _etaLabel = '--';
+      });
+    }
+  }
+
+  void _applyStraightLineDistance() {
+    const d = Distance();
+    final meters = d.as(LengthUnit.Meter, _driverPos, _patientPos);
+    _distLabel = _formatDistanceKm(meters / 1000.0);
+  }
+
+  String _formatDistanceKm(double km) {
+    if (km < 1) return '${(km * 1000).round()} m';
+    return '${km.toStringAsFixed(km < 10 ? 1 : 0)} km';
+  }
+
+  String _formatDriveEta(double durationSeconds) {
+    final minutes = (durationSeconds / 60).ceil();
+    if (minutes < 1) return '<1 min';
+    if (minutes < 60) return '$minutes min';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m > 0 ? '${h}h ${m}m' : '${h}h';
+  }
+
+  void _scheduleRouteRefresh() {
+    if (AppConfig.useMockApi) return;
+    _routeRefreshDebounce?.cancel();
+    _routeRefreshDebounce =
+        Timer(const Duration(seconds: 8), () => unawaited(_loadRoute()));
+  }
+
+  @override
+  void dispose() {
+    _locationTimer?.cancel();
+    _routeRefreshDebounce?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,8 +219,8 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
               children: [
                 FlutterMap(
                   mapController: _mapController,
-                  options: const MapOptions(
-                    initialCenter: LatLng(10.3188, 123.8887),
+                  options: MapOptions(
+                    initialCenter: _mapCenter,
                     initialZoom: 14.5,
                   ),
                   children: [
@@ -45,11 +231,13 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                     PolylineLayer(
                       polylines: [
                         Polyline(
-                          points: [_driverPos, _patientPos],
+                          points: _routePolyline.length >= 2
+                              ? _routePolyline
+                              : [_driverPos, _patientPos],
                           color: AppTheme.blue,
-                          strokeWidth: 5,
+                          strokeWidth: 4,
                           borderColor: AppTheme.blue.withOpacity(0.2),
-                          borderStrokeWidth: 8,
+                          borderStrokeWidth: 7,
                         ),
                       ],
                     ),
@@ -131,7 +319,7 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text('ETA to Patient', style: GoogleFonts.outfit(fontSize: 9.5, color: AppTheme.textLight)),
-                                  Text('--', style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.warning)),
+                                  Text(_routingLoading ? '…' : _etaLabel, style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.warning)),
                                 ],
                               ),
                             ],
@@ -155,7 +343,7 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text('Distance', style: GoogleFonts.outfit(fontSize: 9.5, color: AppTheme.textLight)),
-                                  Text('--', style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.blue)),
+                                  Text(_routingLoading ? '…' : _distLabel, style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.blue)),
                                 ],
                               ),
                             ],
@@ -170,7 +358,7 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                 Positioned(
                   bottom: 18, right: 16,
                   child: GestureDetector(
-                    onTap: () => _mapController.move(const LatLng(10.3188, 123.8887), 14.5),
+                    onTap: () => _mapController.move(_mapCenter, 14.5),
                     child: Container(
                       width: 44, height: 44,
                       decoration: BoxDecoration(
@@ -241,7 +429,7 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(widget.request['emergencyType'] ?? 'Emergency',
+                            Text(_emergencyTitle,
                                 style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
                             const SizedBox(height: 3),
                             Row(
@@ -249,7 +437,7 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                                 const Icon(Icons.location_on_rounded, size: 13, color: AppTheme.textLight),
                                 const SizedBox(width: 4),
                                 Expanded(
-                                  child: Text(widget.request['location'] ?? 'Unknown',
+                                  child: Text(_addressLine,
                                       style: GoogleFonts.outfit(fontSize: 12.5, color: AppTheme.textMid),
                                       overflow: TextOverflow.ellipsis),
                                 ),

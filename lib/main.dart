@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -6,9 +7,17 @@ import 'screens/home_screen.dart';
 import 'screens/services_screen.dart';
 import 'screens/tracking_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/register_screen.dart';
+import 'screens/patient_login_screen.dart';
+import 'widgets/connectivity_gate.dart';
+import 'services/api_client.dart';
+import 'services/app_messenger.dart';
+import 'services/registration_service.dart';
+import 'services/session_service.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ApiClient.instance.restoreSession();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -27,8 +36,60 @@ class ResQmoveApp extends StatelessWidget {
       title: 'ResQmove',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.theme,
-      home: const MainShell(),
+      scaffoldMessengerKey: AppMessenger.scaffoldMessengerKey,
+      builder: (context, child) =>
+          ConnectivityGate(child: child ?? const SizedBox.shrink()),
+      home: const _AppBootstrap(),
     );
+  }
+}
+
+/// Shows quick registration on first launch, then the main tab shell.
+class _AppBootstrap extends StatefulWidget {
+  const _AppBootstrap();
+
+  @override
+  State<_AppBootstrap> createState() => _AppBootstrapState();
+}
+
+class _AppBootstrapState extends State<_AppBootstrap> {
+  bool? _registered;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final ok = await RegistrationService.instance.isRegistered();
+    if (ok) {
+      unawaited(SessionService.instance.syncPatientFromRegistration());
+    }
+    if (mounted) setState(() => _registered = ok);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_registered == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_registered == false) {
+      return RegisterScreen(
+        onRegistered: () => setState(() => _registered = true),
+        onRequestSignIn: () async {
+          final ok = await Navigator.of(context).push<bool>(
+            MaterialPageRoute<bool>(
+              builder: (_) => const PatientLoginScreen(),
+            ),
+          );
+          if (ok == true && mounted) setState(() => _registered = true);
+        },
+      );
+    }
+    return const MainShell();
   }
 }
 

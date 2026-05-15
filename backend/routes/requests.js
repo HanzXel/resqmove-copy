@@ -12,7 +12,8 @@
 
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { db, requestToJson, driverToJson } = require('../database');
+const { db, requestToJson } = require('../database');
+const { getTrackingSnapshot } = require('../trackingSnapshot');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -77,6 +78,23 @@ router.get('/history', (req, res) => {
   return res.json({ requests: rows.map(requestToJson) });
 });
 
+// ── Get tracking info (must be before /:id) ───────────────────────────────────
+router.get('/:id/tracking', (req, res) => {
+  const request = db.prepare('SELECT * FROM requests WHERE id = ?').get(req.params.id);
+  if (!request) return res.status(404).json({ message: 'Request not found.' });
+
+  if (req.user.role === 'patient' && request.user_id !== req.user.id) {
+    return res.status(403).json({ message: 'Forbidden.' });
+  }
+  if (req.user.role === 'driver' && request.assigned_driver_id !== req.user.id) {
+    return res.status(403).json({ message: 'Forbidden.' });
+  }
+
+  const snap = getTrackingSnapshot(req.params.id);
+  if (!snap) return res.status(404).json({ message: 'Request not found.' });
+  return res.json(snap);
+});
+
 // ── Get a single request ──────────────────────────────────────────────────────
 router.get('/:id', (req, res) => {
   const request = db.prepare('SELECT * FROM requests WHERE id = ?').get(req.params.id);
@@ -91,56 +109,12 @@ router.patch('/:id/cancel', (req, res) => {
   if (request.user_id !== req.user.id) return res.status(403).json({ message: 'Forbidden.' });
 
   db.prepare(`UPDATE requests SET status = 'cancelled' WHERE id = ?`).run(req.params.id);
+  const io = req.app.get('io');
+  if (io) {
+    const snap = getTrackingSnapshot(req.params.id);
+    if (snap) io.to(`track:${req.params.id}`).emit('tracking_update', snap);
+  }
   return res.json({ success: true });
 });
-
-// ── Get tracking info for a request (driver location + ETA) ──────────────────
-router.get('/:id/tracking', (req, res) => {
-  const request = db.prepare('SELECT * FROM requests WHERE id = ?').get(req.params.id);
-  if (!request) return res.status(404).json({ message: 'Request not found.' });
-
-  let driverLocation = null;
-  let etaMinutes = null;
-
-  if (request.assigned_driver_id) {
-    const driver = db.prepare('SELECT * FROM drivers WHERE id = ?').get(request.assigned_driver_id);
-    if (driver && driver.current_lat != null) {
-      driverLocation = {
-        latitude: driver.current_lat,
-        longitude: driver.current_lng,
-        timestamp: driver.location_updated_at,
-      };
-
-      // Simple ETA estimate based on straight-line distance
-      if (request.pickup_lat && request.pickup_lng) {
-        const distKm = haversineKm(
-          driver.current_lat, driver.current_lng,
-          request.pickup_lat, request.pickup_lng
-        );
-        // Assume ~40 km/h average in city
-        etaMinutes = Math.max(1, Math.round((distKm / 40) * 60));
-      }
-    }
-  }
-
-  return res.json({
-    status: request.status,
-    driver_location: driverLocation,
-    eta_minutes: etaMinutes,
-  });
-});
-
-// ── Haversine distance helper ─────────────────────────────────────────────────
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = deg2rad(lat2 - lat1);
-  const dLon = deg2rad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-function deg2rad(deg) { return deg * (Math.PI / 180); }
 
 module.exports = router;

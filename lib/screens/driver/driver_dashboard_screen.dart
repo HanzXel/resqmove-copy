@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../theme/app_theme.dart';
+import '../../models/models.dart';
+import '../../services/auth_service.dart';
+import '../../services/driver_service.dart';
+import '../../utils/driver_request_map.dart';
 import 'driver_navigation_screen.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
@@ -14,35 +20,114 @@ class DriverDashboardScreen extends StatefulWidget {
 }
 
 class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
-  bool _isAvailable = true;
-  bool _hasIncomingRequest = false;
+  bool _isAvailable = false;
+  AmbulanceRequestModel? _incoming;
+  AmbulanceRequestModel? _activeTrip;
+  DriverStats _stats = DriverStats.empty();
+  Timer? _pollTimer;
+  bool _acceptBusy = false;
+
   final MapController _mapController = MapController();
   static const LatLng _driverPos = LatLng(10.3220, 123.8920);
 
-  void _toggleAvailability(bool val) {
-    HapticFeedback.mediumImpact();
-    setState(() => _isAvailable = val);
+  @override
+  void initState() {
+    super.initState();
+    final d = AuthService.instance.currentDriver;
+    _isAvailable = d?.status == DriverStatus.available;
+    unawaited(_refreshAll());
+    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) => _refreshAll());
   }
 
-  void _acceptRequest() {
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshAll() async {
+    final statsResult = await DriverService.instance.getStats();
+    final incomingResult = await DriverService.instance.getIncomingRequests();
+    final activeResult = await DriverService.instance.getActiveTrip();
+    if (!mounted) return;
+
+    AmbulanceRequestModel? first;
+    if (incomingResult.success && incomingResult.requests.isNotEmpty) {
+      first = incomingResult.requests.first;
+    }
+
+    setState(() {
+      _stats = statsResult;
+      _activeTrip = activeResult.success ? activeResult.request : null;
+      _incoming = first;
+    });
+  }
+
+  Future<void> _toggleAvailability(bool val) async {
+    HapticFeedback.mediumImpact();
+    final status = val ? DriverStatus.available : DriverStatus.offline;
+    final res = await DriverService.instance.setStatus(status);
+    if (!mounted) return;
+    if (res.success) {
+      setState(() => _isAvailable = val);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res.errorMessage ?? 'Could not update status.',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          backgroundColor: AppTheme.crimson,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _acceptRequest() async {
+    final id = _incoming?.id;
+    if (id == null || id.isEmpty || _acceptBusy) return;
     HapticFeedback.heavyImpact();
-    setState(() => _hasIncomingRequest = false);
-    Navigator.push(
+    setState(() => _acceptBusy = true);
+    final res = await DriverService.instance.acceptRequest(id);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _acceptBusy = false);
+    if (!res.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res.errorMessage ?? 'Accept failed.',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          backgroundColor: AppTheme.crimson,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      unawaited(_refreshAll());
+      return;
+    }
+
+    final payload = driverRequestMapForUi(_incoming!);
+    setState(() => _incoming = null);
+
+    await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => DriverNavigationScreen(
-          request: const {},
-        ),
+        builder: (_) => DriverNavigationScreen(request: payload),
       ),
     );
+    if (mounted) unawaited(_refreshAll());
   }
 
-  void _declineRequest() {
+  Future<void> _declineRequest() async {
+    final id = _incoming?.id;
     HapticFeedback.mediumImpact();
-    setState(() => _hasIncomingRequest = false);
+    if (id != null && id.isNotEmpty) {
+      await DriverService.instance.declineRequest(id);
+    }
+    if (!mounted) return;
+    setState(() => _incoming = null);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Request declined. It will be reassigned.',
+        content: Text('Request declined.',
             style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
         backgroundColor: AppTheme.textDark,
         behavior: SnackBarBehavior.floating,
@@ -50,6 +135,22 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
+    unawaited(_refreshAll());
+  }
+
+  bool get _hasIncomingRequest =>
+      _incoming != null && _isAvailable && _activeTrip == null;
+
+  String get _greetingName {
+    final n = AuthService.instance.currentDriver?.fullName.trim() ?? '';
+    if (n.isEmpty) return 'Good day, Driver!';
+    return 'Good day, $n!';
+  }
+
+  String _shortId(String? id) {
+    if (id == null || id.isEmpty) return '—';
+    if (id.length <= 8) return id;
+    return id.substring(0, 8);
   }
 
   @override
@@ -59,13 +160,71 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       body: CustomScrollView(
         slivers: [
           SliverToBoxAdapter(child: _buildHeader()),
+          if (_activeTrip != null) SliverToBoxAdapter(child: _buildResumeTripBanner()),
           SliverToBoxAdapter(child: _buildStatsRow()),
-          if (_hasIncomingRequest && _isAvailable)
+          if (_hasIncomingRequest)
             SliverToBoxAdapter(child: _buildIncomingRequest()),
           SliverToBoxAdapter(child: _buildMap()),
           SliverToBoxAdapter(child: _buildActivitySection()),
           const SliverToBoxAdapter(child: SizedBox(height: 40)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildResumeTripBanner() {
+    final r = _activeTrip!;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: GestureDetector(
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  DriverNavigationScreen(request: driverRequestMapForUi(r)),
+            ),
+          );
+          if (mounted) unawaited(_refreshAll());
+        },
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: AppTheme.blue.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: AppTheme.blue.withOpacity(0.28)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.blue.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.navigation_rounded, color: AppTheme.blue, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Active trip in progress',
+                        style: GoogleFonts.outfit(
+                            fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+                    const SizedBox(height: 4),
+                    Text(r.emergencyType.label,
+                        style: GoogleFonts.outfit(fontSize: 12, color: AppTheme.textMid),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios_rounded,
+                  size: 14, color: AppTheme.blue.withOpacity(0.7)),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -152,7 +311,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Good day, Driver!',
+                      Text(
+                          _greetingName,
                           style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textDark)),
                       Text('Ready to save lives today?',
                           style: GoogleFonts.outfit(fontSize: 12, color: AppTheme.textLight)),
@@ -193,19 +353,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           _DashSectionLabel(label: "TODAY'S OVERVIEW"),
           const SizedBox(height: 14),
           Row(
-            children: const [
+            children: [
               _StatCard(
-                value: '0', label: 'Pending', sublabel: 'Requests',
+                value: '${_stats.pendingRequests}', label: 'Pending', sublabel: 'Requests',
                 color: AppTheme.warning, icon: Icons.notifications_active_rounded,
               ),
-              SizedBox(width: 10),
+              const SizedBox(width: 10),
               _StatCard(
-                value: '0', label: 'Trips', sublabel: 'Today',
+                value: '${_stats.tripsCompleted}', label: 'Trips', sublabel: 'Today',
                 color: AppTheme.blue, icon: Icons.airport_shuttle_rounded,
               ),
-              SizedBox(width: 10),
+              const SizedBox(width: 10),
               _StatCard(
-                value: '0', label: 'Avg', sublabel: 'Response',
+                value: _stats.avgResponseTime, label: 'Avg', sublabel: 'Response',
                 color: AppTheme.success, icon: Icons.timer_outlined,
               ),
             ],
@@ -283,7 +443,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Cardiac Arrest',
+                      Text(_incoming!.emergencyType.label,
                           style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.w900,
                               color: Colors.white, letterSpacing: -0.5)),
                       const SizedBox(height: 5),
@@ -292,7 +452,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                           const Icon(Icons.location_on_rounded, color: Colors.white70, size: 14),
                           const SizedBox(width: 5),
                           Expanded(
-                            child: Text('Ayala Center Cebu, Cebu City',
+                            child: Text(
+                                _incoming!.pickupLocation.address ??
+                                    '${_incoming!.pickupLocation.latitude.toStringAsFixed(4)}, ${_incoming!.pickupLocation.longitude.toStringAsFixed(4)}',
                                 style: GoogleFonts.outfit(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w500),
                                 overflow: TextOverflow.ellipsis),
                           ),
@@ -306,11 +468,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             const SizedBox(height: 16),
             Row(
               children: [
-                _RequestChip(icon: Icons.timer_outlined, label: '~6 min away'),
-                const SizedBox(width: 8),
-                _RequestChip(icon: Icons.near_me_rounded, label: '1.8 km'),
-                const SizedBox(width: 8),
-                _RequestChip(icon: Icons.warning_rounded, label: 'Critical'),
+                _RequestChip(icon: Icons.tag_rounded, label: 'ID ${_shortId(_incoming!.id)}'),
               ],
             ),
             const SizedBox(height: 22),
@@ -343,25 +501,35 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 Expanded(
                   flex: 2,
                   child: GestureDetector(
-                    onTap: _acceptRequest,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
-                          BoxShadow(color: Colors.black.withOpacity(0.22), blurRadius: 16, offset: const Offset(0, 6)),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.check_rounded, color: AppTheme.crimson, size: 21),
-                          const SizedBox(width: 9),
-                          Text('ACCEPT',
-                              style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w900,
-                                  color: AppTheme.crimson, letterSpacing: 0.8)),
-                        ],
+                    onTap: _acceptBusy ? () {} : _acceptRequest,
+                    child: Opacity(
+                      opacity: _acceptBusy ? 0.6 : 1,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.22), blurRadius: 16, offset: const Offset(0, 6)),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (_acceptBusy)
+                              const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.crimson),
+                              )
+                            else
+                              Icon(Icons.check_rounded, color: AppTheme.crimson, size: 21),
+                            const SizedBox(width: 9),
+                            Text(_acceptBusy ? 'PLEASE WAIT...' : 'ACCEPT',
+                                style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w900,
+                                    color: AppTheme.crimson, letterSpacing: 0.8)),
+                          ],
+                        ),
                       ),
                     ),
                   ),

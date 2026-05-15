@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import 'driver_shell.dart';
+import 'driver_register_screen.dart';
 
 class DriverLoginScreen extends StatefulWidget {
   const DriverLoginScreen({super.key});
@@ -252,6 +253,54 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                       ),
                     ),
                   ),
+
+                  const SizedBox(height: 16),
+
+                  // ── NEW: Register link ────────────────────────────────────
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const DriverRegisterScreen()),
+                      );
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: AppTheme.success.withOpacity(0.35)),
+                        boxShadow: [
+                          BoxShadow(color: AppTheme.success.withOpacity(0.10), blurRadius: 18, offset: const Offset(0, 6)),
+                          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 30, height: 30,
+                            decoration: BoxDecoration(
+                              color: AppTheme.success.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.person_add_rounded, color: AppTheme.success, size: 16),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'New driver? Register here',
+                            style: GoogleFonts.outfit(
+                                fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.success),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(Icons.arrow_forward_ios_rounded, size: 12, color: AppTheme.success),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // ── END: Register link ────────────────────────────────────
 
                   const SizedBox(height: 18),
 

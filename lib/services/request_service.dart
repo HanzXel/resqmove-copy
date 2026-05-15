@@ -18,6 +18,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
+
+import '../config/app_config.dart';
 import 'api_client.dart';
 import '../models/models.dart';
 
@@ -44,7 +46,7 @@ class RequestService {
         address: address,
       );
 
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 800));
         final mockRequest = AmbulanceRequestModel(
           id: 'mock-req-${DateTime.now().millisecondsSinceEpoch}',
@@ -85,7 +87,7 @@ class RequestService {
 
   Future<RequestResult> getRequest(String requestId) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
         return RequestResult.success(_mockPendingRequest(requestId));
       }
@@ -107,7 +109,7 @@ class RequestService {
 
   Future<RequestResult> getActiveRequest() async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
         // No active request in mock by default — screens handle null gracefully
         return const RequestResult._(success: true, request: null);
@@ -140,7 +142,7 @@ class RequestService {
 
   Future<RequestResult> cancelRequest(String requestId) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
         _log('Request cancelled (mock): $requestId');
         return const RequestResult._(success: true, request: null);
@@ -160,7 +162,7 @@ class RequestService {
 
   Future<HistoryResult> getRequestHistory() async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
         // Return empty history in mock — no dummy data
         return const HistoryResult._(success: true, requests: []);
@@ -184,7 +186,7 @@ class RequestService {
 
   Future<AppStatsModel> getAppStats() async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 300));
         return AppStatsModel.empty();
       }
@@ -248,6 +250,3 @@ class HistoryResult {
     this.errorMessage,
   });
 }
-
-// ── Toggle mock mode ──────────────────────────────────────────────────────────
-const bool _mockMode = true;

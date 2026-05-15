@@ -13,7 +13,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const express = require('express');
-const { db, requestToJson, driverToJson } = require('../database');
+const { db, requestToJson } = require('../database');
+const { getTrackingSnapshot } = require('../trackingSnapshot');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -75,6 +76,11 @@ router.post('/requests/:id/accept', (req, res) => {
     .run(req.user.id);
 
   const updated = db.prepare('SELECT * FROM requests WHERE id = ?').get(req.params.id);
+  const io = req.app.get('io');
+  if (io) {
+    const snap = getTrackingSnapshot(req.params.id);
+    if (snap) io.to(`track:${req.params.id}`).emit('tracking_update', snap);
+  }
   return res.json({ request: requestToJson(updated) });
 });
 
@@ -100,6 +106,12 @@ router.post('/trips/:id/complete', (req, res) => {
 
   db.prepare(`UPDATE drivers SET status = 'available', updated_at = datetime('now') WHERE id = ?`)
     .run(req.user.id);
+
+  const io = req.app.get('io');
+  if (io) {
+    const snap = getTrackingSnapshot(req.params.id);
+    if (snap) io.to(`track:${req.params.id}`).emit('tracking_update', snap);
+  }
 
   return res.json({ success: true });
 });
@@ -135,6 +147,15 @@ router.post('/location', (req, res) => {
     SET current_lat = ?, current_lng = ?, location_updated_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ?
   `).run(latitude, longitude, req.user.id);
+
+  const { request_id } = req.body;
+  const io = req.app.get('io');
+  if (io && request_id) {
+    const snap = getTrackingSnapshot(request_id);
+    if (snap) {
+      io.to(`track:${request_id}`).emit('tracking_update', snap);
+    }
+  }
 
   return res.json({ success: true });
 });

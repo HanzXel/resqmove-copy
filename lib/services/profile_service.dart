@@ -13,6 +13,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
+
+import '../config/app_config.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import '../models/models.dart';
@@ -27,7 +29,7 @@ class ProfileService {
 
   Future<ProfileResult<UserModel>> getPatientProfile() async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
         final cached = AuthService.instance.currentUser;
         if (cached != null) return ProfileResult.success(cached);
@@ -51,7 +53,7 @@ class ProfileService {
 
   Future<ProfileResult<UserModel>> updatePatientProfile(UserModel user) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 600));
         AuthService.instance.updateCachedUser(user);
         _log('Patient profile updated (mock)');
@@ -61,6 +63,7 @@ class ProfileService {
       final response = await _client.put(
         '/profile/patient',
         body: user.toJson(),
+        timeout: const Duration(seconds: 45),
       );
       final updated = UserModel.fromJson(
         response.data?['user'] as Map<String, dynamic>? ?? response.data!,
@@ -79,7 +82,7 @@ class ProfileService {
 
   Future<ProfileResult<DriverModel>> getDriverProfile() async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
         final cached = AuthService.instance.currentDriver;
         if (cached != null) return ProfileResult.success(cached);
@@ -103,7 +106,7 @@ class ProfileService {
 
   Future<ProfileResult<DriverModel>> updateDriverProfile(DriverModel driver) async {
     try {
-      if (_mockMode) {
+      if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 600));
         AuthService.instance.updateCachedDriver(driver);
         _log('Driver profile updated (mock)');
@@ -147,6 +150,3 @@ class ProfileResult<T> {
   factory ProfileResult.failure(String message) =>
       ProfileResult._(success: false, errorMessage: message);
 }
-
-// ── Toggle mock mode ──────────────────────────────────────────────────────────
-const bool _mockMode = true;

@@ -3,6 +3,7 @@
 //  routes/auth.js
 //
 //  POST /api/v1/auth/patient/login
+//  POST /api/v1/auth/driver/register
 //  POST /api/v1/auth/driver/login
 //  POST /api/v1/auth/logout
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,6 +50,52 @@ router.post('/patient/login', (req, res) => {
   });
 });
 
+// ── Driver self-registration (no auth) ────────────────────────────────────────
+router.post('/driver/register', (req, res) => {
+  const {
+    driver_id,
+    password,
+    full_name,
+    contact_number,
+    unit_id,
+    hospital_name,
+    unit_type,
+  } = req.body;
+
+  if (!driver_id || !password || !full_name) {
+    return res.status(400).json({
+      message: 'driver_id, password, and full_name are required.',
+    });
+  }
+
+  const existing = db.prepare('SELECT id FROM drivers WHERE driver_id = ?').get(driver_id);
+  if (existing) {
+    return res.status(409).json({ message: 'Driver ID already taken.' });
+  }
+
+  const id = uuidv4();
+  const hash = bcrypt.hashSync(password, 10);
+  db.prepare(`
+    INSERT INTO drivers (id, full_name, driver_id, password_hash, contact_number, unit_id, hospital_name, unit_type, status, approved)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offline', 0)
+  `).run(
+    id,
+    full_name,
+    driver_id,
+    hash,
+    contact_number || '',
+    unit_id || null,
+    hospital_name || null,
+    unit_type || null,
+  );
+
+  return res.status(201).json({
+    success: true,
+    message:
+      'Account created and is pending approval. An administrator must approve your account before you can sign in.',
+  });
+});
+
 // ── Driver Login ──────────────────────────────────────────────────────────────
 router.post('/driver/login', (req, res) => {
   const { username, password } = req.body;
@@ -64,6 +111,13 @@ router.post('/driver/login', (req, res) => {
   const valid = bcrypt.compareSync(password, driver.password_hash);
   if (!valid) {
     return res.status(401).json({ message: 'Invalid driver ID or password.' });
+  }
+
+  if (Number(driver.approved) !== 1) {
+    return res.status(403).json({
+      message:
+        'Your driver account is pending approval. Contact dispatch or an administrator.',
+    });
   }
 
   const token = jwt.sign(
