@@ -43,11 +43,13 @@ app.use(cors());
 app.use(express.json());
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.use('/api/v1/auth',     require('./routes/auth'));
-app.use('/api/v1/requests', require('./routes/requests'));
-app.use('/api/v1/driver',   require('./routes/driver'));
-app.use('/api/v1/profile',  require('./routes/profile'));
+app.use('/api/v1/auth',      require('./routes/auth'));
+app.use('/api/v1/requests',  require('./routes/requests'));
+app.use('/api/v1/driver',    require('./routes/driver'));
+app.use('/api/v1/profile',   require('./routes/profile'));
 app.use('/api/v1/transport', require('./routes/transport'));
+app.use('/api/v1/stats',     require('./routes/stats'));     // FIX: was missing
+app.use('/api/v1/events',    require('./routes/events'));    // FIX: event standby bookings
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {

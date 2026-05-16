@@ -29,6 +29,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
   StreamSubscription<TrackingSnapshot>? _sub;
   String? _driverContactNumber;
 
+  // [FIX] Track previous status to detect acceptance transition
+  RequestStatus? _prevStatus;
+  bool _acceptedModalShown = false;
+
   LatLng get _pickup {
     final r = _request;
     if (r == null) return const LatLng(10.3157, 123.8854);
@@ -149,6 +153,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     setState(() {
       _loading = false;
       _request = res.request;
+      _prevStatus = res.request!.status;
     });
 
     // Fetch driver contact number if a driver has been assigned
@@ -159,15 +164,159 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
     TrackingService.instance.startTracking(id);
     _sub = TrackingService.instance.trackingStream.listen((snap) {
-      if (mounted) {
-        setState(() => _snapshot = snap);
-        // Fetch driver contact once accepted (driver assigned mid-trip)
-        final newDriverId = _request?.assignedDriverId;
-        if (_driverContactNumber == null && newDriverId != null && newDriverId.isNotEmpty) {
-          unawaited(_fetchDriverContact(newDriverId));
-        }
+      if (!mounted) return;
+
+      final newStatus = snap.status;
+      final oldStatus = _prevStatus;
+
+      setState(() {
+        _snapshot = snap;
+        _prevStatus = newStatus;
+      });
+
+      // [FIX] Show acceptance modal when status transitions to accepted
+      if (!_acceptedModalShown &&
+          oldStatus == RequestStatus.pending &&
+          newStatus == RequestStatus.accepted) {
+        _acceptedModalShown = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showAcceptedModal();
+        });
+      }
+
+      // Fetch driver contact once accepted (driver assigned mid-trip)
+      final newDriverId = _request?.assignedDriverId;
+      if (_driverContactNumber == null &&
+          newDriverId != null &&
+          newDriverId.isNotEmpty) {
+        unawaited(_fetchDriverContact(newDriverId));
       }
     });
+  }
+
+  // [FIX] Modal that notifies the user their request has been accepted
+  void _showAcceptedModal() {
+    HapticFeedback.heavyImpact();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        backgroundColor: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(28, 32, 28, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Animated checkmark container
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1E88E5), Color(0xFF0D47A1)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.blue.withOpacity(0.40),
+                      blurRadius: 28,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.airport_shuttle_rounded,
+                  color: Colors.white,
+                  size: 44,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Request Accepted!',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'A driver has accepted your emergency request and is on the way to your location.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  fontSize: 14,
+                  color: AppTheme.textMid,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.blue.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.blue.withOpacity(0.22)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.location_on_rounded,
+                        color: AppTheme.blue, size: 16),
+                    const SizedBox(width: 7),
+                    Text(
+                      'Track the ambulance below',
+                      style: GoogleFonts.outfit(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.blue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              GestureDetector(
+                onTap: () => Navigator.of(ctx).pop(),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 17),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1E88E5), Color(0xFF0D47A1)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.blue.withOpacity(0.40),
+                        blurRadius: 16,
+                        offset: const Offset(0, 7),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    'GOT IT',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.outfit(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _fetchDriverContact(String driverId) async {
@@ -409,7 +558,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
                                       color: Colors.white, size: 17),
                                   const SizedBox(width: 7),
                                   Text(
-                                    _driverContactNumber != null ? 'Call Driver' : 'Call Hotline',
+                                    _driverContactNumber != null
+                                        ? 'Call Driver'
+                                        : 'Call Hotline',
                                     style: GoogleFonts.outfit(
                                         fontSize: 13,
                                         fontWeight: FontWeight.w700,

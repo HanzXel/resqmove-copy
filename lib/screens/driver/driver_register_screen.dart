@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
+import 'driver_shell.dart';
 
 class DriverRegisterScreen extends StatefulWidget {
   const DriverRegisterScreen({super.key});
@@ -13,14 +14,14 @@ class DriverRegisterScreen extends StatefulWidget {
 
 class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   // Controllers
-  final _firstNameCtrl      = TextEditingController();
-  final _lastNameCtrl       = TextEditingController();
-  final _licenseCtrl        = TextEditingController();
-  final _phoneCtrl          = TextEditingController();
-  final _emailCtrl          = TextEditingController();
-  final _addressCtrl        = TextEditingController();
-  final _usernameCtrl       = TextEditingController();
-  final _passwordCtrl       = TextEditingController();
+  final _firstNameCtrl       = TextEditingController();
+  final _lastNameCtrl        = TextEditingController();
+  final _licenseCtrl         = TextEditingController();
+  final _phoneCtrl           = TextEditingController();
+  final _emailCtrl           = TextEditingController();
+  final _addressCtrl         = TextEditingController();
+  final _usernameCtrl        = TextEditingController();
+  final _passwordCtrl        = TextEditingController();
   final _confirmPasswordCtrl = TextEditingController();
 
   String? _selectedUnit;
@@ -153,12 +154,31 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       return;
     }
 
-    // Show success dialog
+    // [FIX 3] Auto-login the newly registered driver for demo purposes
+    final loginResult = await AuthService.instance.loginAsDriver(
+      username: _usernameCtrl.text.trim(),
+      password: _passwordCtrl.text,
+      unitId: unit['unit_id'],
+    );
+
+    if (!mounted) return;
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => _SuccessDialog(
-        onDone: () {
+        driverName: fullName,
+        // [FIX 3] If auto-login succeeded pass callback to go to dashboard
+        onGoToDashboard: loginResult.success
+            ? () {
+                Navigator.of(context).pop(); // close dialog
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const DriverShell()),
+                  (route) => false,
+                );
+              }
+            : null,
+        onBackToLogin: () {
           Navigator.of(context).pop(); // close dialog
           Navigator.of(context).pop(); // back to login
         },
@@ -183,17 +203,14 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Step indicator
                   _StepIndicator(currentStep: _currentStep),
                   const SizedBox(height: 28),
 
-                  // Error banner
                   if (_errorMessage != null) ...[
                     _ErrorBanner(message: _errorMessage!),
                     const SizedBox(height: 20),
                   ],
 
-                  // Step content
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 300),
                     transitionBuilder: (child, anim) => FadeTransition(
@@ -210,8 +227,6 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                   ),
 
                   const SizedBox(height: 32),
-
-                  // Navigation buttons
                   _buildNavButtons(),
                 ],
               ),
@@ -258,7 +273,6 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   Widget _buildNavButtons() {
     return Row(
       children: [
-        // Back button (hidden on first step)
         if (_currentStep > 0) ...[
           Expanded(
             child: GestureDetector(
@@ -285,7 +299,6 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
           const SizedBox(width: 12),
         ],
 
-        // Next / Submit button
         Expanded(
           flex: _currentStep > 0 ? 2 : 1,
           child: GestureDetector(
@@ -398,8 +411,6 @@ class _StepAssignment extends StatelessWidget {
           subtitle: 'Your ambulance unit and experience',
         ),
         const SizedBox(height: 18),
-
-        // Unit assignment
         _DropdownCard(
           icon: Icons.airport_shuttle_rounded,
           label: 'Ambulance Unit',
@@ -409,8 +420,6 @@ class _StepAssignment extends StatelessWidget {
           onChanged: onUnitChanged,
         ),
         const SizedBox(height: 14),
-
-        // Experience
         _DropdownCard(
           icon: Icons.timer_outlined,
           label: 'Years of Experience',
@@ -420,31 +429,30 @@ class _StepAssignment extends StatelessWidget {
           onChanged: onExperienceChanged,
         ),
         const SizedBox(height: 20),
-
-        // Info box
+        // [FIX 3] Updated info box — verified automatically for demo
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [AppTheme.blue.withOpacity(0.07), AppTheme.blue.withOpacity(0.02)],
+              colors: [AppTheme.success.withOpacity(0.08), AppTheme.success.withOpacity(0.02)],
             ),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTheme.blue.withOpacity(0.16)),
+            border: Border.all(color: AppTheme.success.withOpacity(0.25)),
           ),
           child: Row(
             children: [
               Container(
                 width: 42, height: 42,
                 decoration: BoxDecoration(
-                  color: AppTheme.blue.withOpacity(0.12),
+                  color: AppTheme.success.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(13),
                 ),
-                child: const Icon(Icons.info_outline_rounded, color: AppTheme.blue, size: 21),
+                child: const Icon(Icons.verified_rounded, color: AppTheme.success, size: 21),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Text(
-                  'Your assignment will be verified by the ResQmove command center before activation.',
+                  'For demo purposes, your account will be automatically verified and activated upon registration.',
                   style: GoogleFonts.outfit(fontSize: 12.5, color: AppTheme.textMid, height: 1.5),
                 ),
               ),
@@ -509,7 +517,6 @@ class _StepAccount extends StatelessWidget {
         ]),
         const SizedBox(height: 20),
 
-        // Terms checkbox
         GestureDetector(
           onTap: () => onTermsChanged(!agreedToTerms),
           child: Container(
@@ -618,7 +625,6 @@ class _StepIndicator extends StatelessWidget {
     return Row(
       children: List.generate(steps.length * 2 - 1, (i) {
         if (i.isOdd) {
-          // connector line
           final leftDone = i ~/ 2 < currentStep;
           return Expanded(
             child: Container(
@@ -635,9 +641,9 @@ class _StepIndicator extends StatelessWidget {
           );
         }
         final stepIndex = i ~/ 2;
-        final done    = stepIndex < currentStep;
-        final active  = stepIndex == currentStep;
-        final color   = done || active ? AppTheme.crimson : AppTheme.border;
+        final done   = stepIndex < currentStep;
+        final active = stepIndex == currentStep;
+        final color  = done || active ? AppTheme.crimson : AppTheme.border;
 
         return Column(
           children: [
@@ -870,13 +876,11 @@ class _RegisterHeroHeader extends StatelessWidget {
           Positioned(right: -50, top: -50,
             child: Container(width: 260, height: 260,
               decoration: BoxDecoration(shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [AppTheme.crimson.withOpacity(0.28), Colors.transparent]))),
-          ),
+                gradient: RadialGradient(colors: [AppTheme.crimson.withOpacity(0.28), Colors.transparent])))),
           Positioned(left: -30, bottom: -30,
             child: Container(width: 200, height: 200,
               decoration: BoxDecoration(shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [AppTheme.blue.withOpacity(0.22), Colors.transparent]))),
-          ),
+                gradient: RadialGradient(colors: [AppTheme.blue.withOpacity(0.22), Colors.transparent])))),
           Positioned.fill(child: CustomPaint(painter: _DotGridPainter())),
           SafeArea(
             bottom: false,
@@ -953,12 +957,19 @@ class _DotGridPainter extends CustomPainter {
 }
 
 // ─────────────────────────────────────────────
-//  SUCCESS DIALOG
+//  SUCCESS DIALOG — [FIX 3] Auto-verified
 // ─────────────────────────────────────────────
 
 class _SuccessDialog extends StatelessWidget {
-  final VoidCallback onDone;
-  const _SuccessDialog({required this.onDone});
+  final String driverName;
+  final VoidCallback? onGoToDashboard;
+  final VoidCallback onBackToLogin;
+
+  const _SuccessDialog({
+    required this.driverName,
+    required this.onBackToLogin,
+    this.onGoToDashboard,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -971,6 +982,7 @@ class _SuccessDialog extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Verified badge
             Container(
               width: 80, height: 80,
               decoration: BoxDecoration(
@@ -981,35 +993,84 @@ class _SuccessDialog extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [BoxShadow(color: AppTheme.success.withOpacity(0.40), blurRadius: 24, offset: const Offset(0, 10))],
               ),
-              child: const Icon(Icons.check_rounded, color: Colors.white, size: 42),
+              child: const Icon(Icons.verified_rounded, color: Colors.white, size: 42),
             ),
             const SizedBox(height: 20),
-            Text('Registration Submitted!',
+            Text('Account Verified!',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.w900, color: AppTheme.textDark)),
-            const SizedBox(height: 10),
+                style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.w900, color: AppTheme.textDark)),
+            const SizedBox(height: 6),
+            // [FIX 3] Verified badge chip
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.success.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppTheme.success.withOpacity(0.30)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: AppTheme.success, size: 14),
+                  const SizedBox(width: 6),
+                  Text('AUTO-VERIFIED · DEMO MODE',
+                      style: GoogleFonts.outfit(fontSize: 10, fontWeight: FontWeight.w800,
+                          color: AppTheme.success, letterSpacing: 0.5)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
             Text(
-              'Your driver registration has been sent to the ResQmove command center for verification. You will be notified once your account is approved.',
+              'Welcome aboard, $driverName! Your driver account has been registered and automatically verified. You can now log in to the driver dashboard.',
               textAlign: TextAlign.center,
               style: GoogleFonts.outfit(fontSize: 13, color: AppTheme.textMid, height: 1.5),
             ),
             const SizedBox(height: 24),
+
+            // [FIX 3] Go to Dashboard button (if auto-login succeeded)
+            if (onGoToDashboard != null) ...[
+              GestureDetector(
+                onTap: onGoToDashboard,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [AppTheme.success, Color(0xFF2E7D32)],
+                      begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [BoxShadow(color: AppTheme.success.withOpacity(0.40), blurRadius: 18, offset: const Offset(0, 8))],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.dashboard_rounded, color: Colors.white, size: 18),
+                      const SizedBox(width: 8),
+                      Text('Go to Dashboard',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+
             GestureDetector(
-              onTap: onDone,
+              onTap: onBackToLogin,
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF1A35), Color(0xFFD0021B)],
-                    begin: Alignment.topLeft, end: Alignment.bottomRight,
-                  ),
+                  color: AppTheme.surfaceLight,
                   borderRadius: BorderRadius.circular(18),
-                  boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.40), blurRadius: 18, offset: const Offset(0, 8))],
+                  border: Border.all(color: AppTheme.border),
                 ),
                 child: Text('Back to Login',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
+                    style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w700,
+                        color: AppTheme.textMid)),
               ),
             ),
           ],

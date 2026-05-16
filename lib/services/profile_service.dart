@@ -1,15 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  ResQMove — Profile Service
 //  lib/services/profile_service.dart
-//
-//  Handles get/update for both patient and driver profiles.
-//
-//  ENDPOINTS YOUR CLASSMATE NEEDS TO IMPLEMENT:
-//    GET   /profile/patient   returns: UserModel
-//    PUT   /profile/patient   body: UserModel.toJson()
-//    GET   /profile/driver    returns: DriverModel
-//    PUT   /profile/driver    body: DriverModel.toJson()
-//
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
@@ -17,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'registration_service.dart';
 import '../models/models.dart';
 
 class ProfileService {
@@ -31,8 +23,31 @@ class ProfileService {
     try {
       if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
+
+        // [FIX 2] If no cached user, hydrate from local registration data
         final cached = AuthService.instance.currentUser;
-        if (cached != null) return ProfileResult.success(cached);
+        if (cached != null && cached.fullName.isNotEmpty) {
+          return ProfileResult.success(cached);
+        }
+
+        final reg = await RegistrationService.instance.loadRegistration();
+        if (reg != null && !reg.isEmpty) {
+          final user = UserModel(
+            id: 'local-user',
+            fullName: reg.fullName,
+            contactNumber: reg.mobilePrimary,
+            address: reg.address.isNotEmpty ? reg.address : null,
+            emergencyContact: (reg.ecName.isNotEmpty || reg.mobileSecondary.isNotEmpty)
+                ? EmergencyContact(
+                    name: reg.ecName,
+                    contactNumber: reg.mobileSecondary,
+                  )
+                : null,
+          );
+          AuthService.instance.updateCachedUser(user);
+          return ProfileResult.success(user);
+        }
+
         return ProfileResult.success(UserModel.empty());
       }
 

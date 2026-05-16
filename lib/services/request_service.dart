@@ -1,26 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  ResQMove — Request Service
 //  lib/services/request_service.dart
-//
-//  Handles all ambulance request operations from the patient side:
-//    • Submit a new emergency request
-//    • Get current active request status
-//    • Cancel an active request
-//    • Get request history
-//
-//  ENDPOINTS YOUR CLASSMATE NEEDS TO IMPLEMENT:
-//    POST   /requests              body: { emergency_type, pickup_location, notes? }
-//    GET    /requests/:id          returns: AmbulanceRequestModel
-//    GET    /requests/active       returns: AmbulanceRequestModel | null
-//    PATCH  /requests/:id/cancel   returns: { success: true }
-//    GET    /requests/history      returns: [ AmbulanceRequestModel, ... ]
-//
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
 
 import '../config/app_config.dart';
 import 'api_client.dart';
+import 'mock_state.dart';
 import '../models/models.dart';
 
 class RequestService {
@@ -56,6 +43,8 @@ class RequestService {
           notes: notes,
           requestedAt: DateTime.now(),
         );
+        // [FIX] Store in shared mock state so driver side can see it
+        MockState.instance.submitRequest(mockRequest);
         _log('Request submitted (mock): ${mockRequest.id}');
         return RequestResult.success(mockRequest);
       }
@@ -89,6 +78,8 @@ class RequestService {
     try {
       if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
+        final r = MockState.instance.activeRequest;
+        if (r != null && r.id == requestId) return RequestResult.success(r);
         return RequestResult.success(_mockPendingRequest(requestId));
       }
 
@@ -105,20 +96,22 @@ class RequestService {
   }
 
   // ── Get the currently active request for the logged-in patient ─────────────
-  //  Returns null data if no active request exists.
 
   Future<RequestResult> getActiveRequest() async {
     try {
       if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
-        // No active request in mock by default — screens handle null gracefully
+        // [FIX] Return from shared mock state so tracking screen works
+        final r = MockState.instance.activeRequest;
+        if (r != null && r.isActive) {
+          return RequestResult.success(r);
+        }
         return const RequestResult._(success: true, request: null);
       }
 
       final response = await _client.get('/requests/active');
       final data = response.data;
 
-      // Server returns null/empty when no active request
       if (data == null || data['request'] == null) {
         return const RequestResult._(success: true, request: null);
       }
@@ -129,7 +122,6 @@ class RequestService {
       return RequestResult.success(request);
     } on ApiException catch (e) {
       if (e.statusCode == 404) {
-        // 404 = no active request, not an error
         return const RequestResult._(success: true, request: null);
       }
       return RequestResult.failure(e.message);
@@ -144,6 +136,7 @@ class RequestService {
     try {
       if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
+        MockState.instance.clear();
         _log('Request cancelled (mock): $requestId');
         return const RequestResult._(success: true, request: null);
       }
@@ -164,7 +157,6 @@ class RequestService {
     try {
       if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
-        // Return empty history in mock — no dummy data
         return const HistoryResult._(success: true, requests: []);
       }
 
@@ -182,7 +174,7 @@ class RequestService {
     }
   }
 
-  // ── App-wide stats (home screen: avg response / available / lives saved) ───
+  // ── App-wide stats ─────────────────────────────────────────────────────────
 
   Future<AppStatsModel> getAppStats() async {
     try {

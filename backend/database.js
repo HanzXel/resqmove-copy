@@ -75,6 +75,19 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
+
+  CREATE TABLE IF NOT EXISTS event_standby_bookings (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    event_name TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL,
+    expected_attendees TEXT,
+    contact_person TEXT,
+    event_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
 `);
 
 // ── Schema migrations (additive) ─────────────────────────────────────────────
