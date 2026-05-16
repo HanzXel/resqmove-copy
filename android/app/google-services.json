@@ -1,22 +1,29 @@
 {
-  "_PLACEHOLDER": true,
-  "_INSTRUCTIONS": [
-    "This file is a PLACEHOLDER. Replace it with your real google-services.json from Firebase.",
-    "",
-    "Steps to get the real file:",
-    "  1. Go to https://console.firebase.google.com",
-    "  2. Click 'Add project' (or select an existing one)",
-    "  3. Project name: ResQMove  (or anything you like)",
-    "  4. Disable Google Analytics if not needed -> Create project",
-    "  5. Click the Android icon to add an Android app",
-    "  6. Android package name: com.resqmove.app  (must match exactly)",
-    "  7. App nickname: ResQMove",
-    "  8. Click 'Register app'",
-    "  9. Download google-services.json",
-    " 10. Replace THIS file with the downloaded one",
-    " 11. Run:  flutter pub get",
-    "",
-    "The package name com.resqmove.app is already set in android/app/build.gradle.kts",
-    "Firebase is used for push notifications (FCM) only."
-  ]
+  "project_info": {
+    "project_number": "413179803695",
+    "project_id": "resqmove",
+    "storage_bucket": "resqmove.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:413179803695:android:5da873fd773a2f50afaeda",
+        "android_client_info": {
+          "package_name": "com.resqmove.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBXKvuewkF1ebpCJsxM7FQ-gh8IZq_eqQk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
 }
