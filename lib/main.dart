@@ -15,9 +15,11 @@ import 'services/app_messenger.dart';
 import 'services/notification_service.dart';
 import 'services/registration_service.dart';
 import 'services/session_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Permission.notification.request();
   await ApiClient.instance.restoreSession();
   await NotificationService.instance.init();
   SystemChrome.setSystemUIOverlayStyle(
