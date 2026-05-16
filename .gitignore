@@ -43,3 +43,21 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Backend secrets — never commit these
+backend/.env
+backend/resqmove.db
+backend/resqmove.db-shm
+backend/resqmove.db-wal
+
+# Release keystore — never commit this
+android/app/*.jks
+android/app/*.keystore
+
+# Generated assets (created by generate_assets.py)
+# assets/images/*.png
+# (commented out — you may want to commit these after generating)
+
+# Python bytecode
+__pycache__/
+*.pyc

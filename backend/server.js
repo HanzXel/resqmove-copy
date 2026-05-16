@@ -3,6 +3,9 @@
 //  server.js
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Load .env file so JWT_SECRET persists across restarts (no more ephemeral tokens)
+try { require('dotenv').config(); } catch (_) { /* dotenv optional — set env vars manually if needed */ }
+
 const crypto = require('crypto');
 const http = require('http');
 const express = require('express');
