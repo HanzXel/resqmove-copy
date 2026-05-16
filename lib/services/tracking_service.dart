@@ -11,6 +11,7 @@
 //    • Stale-snapshot guard: ignores payloads older than 60 s
 //    • Auto-stops polling/socket on terminal status
 //    • Exposes connection health via [connectionState] stream
+//    • [FIX] Mock mode reads from MockState so patient can track the driver
 //
 //  Backend: GET /requests/:id/tracking, POST /driver/location, Socket.io room
 //  `track:<requestId>` with event `tracking_update`.
@@ -24,6 +25,7 @@ import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 import '../config/app_config.dart';
 import '../models/models.dart';
 import 'api_client.dart';
+import 'mock_state.dart';
 
 // ── Connection state ──────────────────────────────────────────────────────────
 enum SocketConnectionState { disconnected, connecting, connected, error }
@@ -99,12 +101,13 @@ class TrackingService {
     _currentRequestId = requestId;
     _reconnectDelay = 2;
 
-    _log('Tracking started for request \$requestId');
+    _log('Tracking started for request $requestId');
     unawaited(_fetchAndEmit(requestId));
 
     if (AppConfig.useMockApi) {
+      // [FIX] Poll every 3 seconds in mock mode so status updates appear quickly
       _pollTimer = Timer.periodic(
-        const Duration(seconds: 5),
+        const Duration(seconds: 3),
         (_) => unawaited(_fetchAndEmit(requestId)),
       );
       return;
@@ -144,25 +147,46 @@ class TrackingService {
       final snapshot = await _fetchSnapshot(requestId);
       _emit(snapshot);
       if (snapshot.isTerminal) {
-        _log('Trip terminal (\${snapshot.status.label}) — stopping tracker');
+        _log('Trip terminal (${snapshot.status.label}) — stopping tracker');
         stopTracking();
       }
     } catch (e) {
-      _log('HTTP fetch error: \$e');
+      _log('HTTP fetch error: $e');
     }
   }
 
   Future<TrackingSnapshot> _fetchSnapshot(String requestId) async {
     if (AppConfig.useMockApi) {
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      // [FIX] Read real status and driver location from shared MockState
+      final r = MockState.instance.activeRequest;
+      final status = (r != null && r.id == requestId)
+          ? r.status
+          : RequestStatus.pending;
+
+      // Provide driver location when trip is accepted / in progress
+      DriverLocation? driverLocation;
+      if (status == RequestStatus.accepted ||
+          status == RequestStatus.inProgress) {
+        driverLocation = DriverLocation(
+          latitude: MockState.instance.driverLat,
+          longitude: MockState.instance.driverLng,
+        );
+      }
+
       return TrackingSnapshot(
-        driverLocation: null,
-        status: RequestStatus.pending,
-        etaMinutes: null,
+        driverLocation: driverLocation,
+        status: status,
+        etaMinutes: (status == RequestStatus.accepted ||
+                status == RequestStatus.inProgress)
+            ? 5
+            : null,
         fetchedAt: DateTime.now(),
       );
     }
-    final response = await _client.get('/requests/\$requestId/tracking');
+
+    final response = await _client.get('/requests/$requestId/tracking');
     return TrackingSnapshot.fromJson(response.data ?? {});
   }
 
@@ -175,7 +199,7 @@ class TrackingService {
   String _socketOrigin() {
     final base = Uri.parse(AppConfig.apiBaseUrl);
     final port = base.hasPort ? base.port : (base.scheme == 'https' ? 443 : 80);
-    return '\${base.scheme}://\${base.host}:\$port';
+    return '${base.scheme}://${base.host}:$port';
   }
 
   Future<void> _connectSocket(String requestId) async {
@@ -215,7 +239,7 @@ class TrackingService {
       });
 
       _socket!.on('disconnect', (reason) {
-        _log('Socket disconnected: \$reason');
+        _log('Socket disconnected: $reason');
         _setConnState(SocketConnectionState.disconnected);
         _heartbeatTimer?.cancel();
 
@@ -226,7 +250,7 @@ class TrackingService {
       });
 
       _socket!.on('connect_error', (err) {
-        _log('Socket connect_error: \$err');
+        _log('Socket connect_error: $err');
         _setConnState(SocketConnectionState.error);
         _heartbeatTimer?.cancel();
         _scheduleReconnect(requestId);
@@ -239,7 +263,7 @@ class TrackingService {
       });
 
       _socket!.on('tracking_error', (dynamic data) {
-        _log('tracking_error from server: \$data');
+        _log('tracking_error from server: $data');
       });
 
       _socket!.on('pong', (_) {
@@ -249,7 +273,7 @@ class TrackingService {
 
       _socket!.connect();
     } catch (e) {
-      _log('Socket setup error: \$e');
+      _log('Socket setup error: $e');
       _setConnState(SocketConnectionState.error);
       _scheduleReconnect(requestId);
     }
@@ -272,7 +296,7 @@ class TrackingService {
     if (_currentRequestId == null) return;
     final delay = _reconnectDelay;
     _reconnectDelay = (_reconnectDelay * 2).clamp(2, 30);
-    _log('Reconnecting socket in \${delay}s...');
+    _log('Reconnecting socket in ${delay}s...');
     Future.delayed(Duration(seconds: delay), () {
       if (_currentRequestId != null) unawaited(_connectSocket(requestId));
     });
@@ -285,14 +309,14 @@ class TrackingService {
       // Stale-snapshot guard: ignore data older than 60 seconds
       final age = DateTime.now().difference(snap.fetchedAt).inSeconds;
       if (age > 60) {
-        _log('Ignoring stale snapshot (\${age}s old)');
+        _log('Ignoring stale snapshot (${age}s old)');
         return;
       }
 
       _emit(snap);
       if (snap.isTerminal) stopTracking();
     } catch (e) {
-      _log('tracking_update parse: \$e');
+      _log('tracking_update parse: $e');
     }
   }
 
@@ -321,7 +345,9 @@ class TrackingService {
   }) async {
     try {
       if (AppConfig.useMockApi) {
-        _log('Driver location push (mock): \$latitude, \$longitude');
+        // [FIX] Update shared MockState so patient tracking screen sees movement
+        MockState.instance.updateDriverLocation(latitude, longitude);
+        _log('Driver location push (mock): $latitude, $longitude');
         return;
       }
       await _client.post('/driver/location', body: {
@@ -330,7 +356,7 @@ class TrackingService {
         if (activeRequestId != null) 'request_id': activeRequestId,
       });
     } catch (e) {
-      _log('Location push error: \$e');
+      _log('Location push error: $e');
     }
   }
 
@@ -341,6 +367,6 @@ class TrackingService {
   }
 
   void _log(String msg) {
-    if (kDebugMode) debugPrint('[TrackingService] \$msg');
+    if (kDebugMode) debugPrint('[TrackingService] $msg');
   }
 }

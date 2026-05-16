@@ -1,23 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  ResQMove — Driver Service
 //  lib/services/driver_service.dart
-//
-//  Handles all driver-side operations:
-//    • Toggle availability (online/offline)
-//    • Fetch incoming trip requests
-//    • Accept or decline a trip
-//    • Complete an active trip
-//    • Fetch today's driver stats
-//
-//  ENDPOINTS YOUR CLASSMATE NEEDS TO IMPLEMENT:
-//    GET    /driver/requests               returns: [ AmbulanceRequestModel, ... ]
-//    GET    /driver/active-trip            returns: AmbulanceRequestModel | null
-//    PATCH  /driver/status                 body: { status: 'available'|'busy'|'offline' }
-//    POST   /driver/requests/:id/accept    returns: AmbulanceRequestModel
-//    POST   /driver/requests/:id/decline   returns: { success: true }
-//    POST   /driver/trips/:id/complete     returns: { success: true }
-//    GET    /driver/stats                  returns: DriverStats
-//
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
@@ -25,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'mock_state.dart';
 import '../models/models.dart';
 
 class DriverService {
@@ -57,12 +41,17 @@ class DriverService {
     }
   }
 
-  // ── Fetch pending incoming requests for the driver ─────────────────────────
+  // ── Fetch pending incoming requests ────────────────────────────────────────
 
   Future<RequestListResult> getIncomingRequests() async {
     try {
       if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
+        // [FIX] Return any pending request from shared mock state
+        final r = MockState.instance.activeRequest;
+        if (r != null && r.status == RequestStatus.pending) {
+          return RequestListResult._(success: true, requests: [r]);
+        }
         return const RequestListResult._(success: true, requests: []);
       }
 
@@ -86,6 +75,10 @@ class DriverService {
     try {
       if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
+        final r = MockState.instance.activeRequest;
+        if (r != null && r.status == RequestStatus.accepted) {
+          return ActiveTripResult._(success: true, request: r);
+        }
         return const ActiveTripResult._(success: true, request: null);
       }
 
@@ -116,6 +109,8 @@ class DriverService {
     try {
       if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 600));
+        // [FIX] Update shared mock state so patient side sees "accepted"
+        MockState.instance.acceptRequest(requestId);
         _log('Request $requestId accepted (mock)');
         return DriverResult.success();
       }
@@ -150,10 +145,8 @@ class DriverService {
     }
   }
 
-  // ── Fetch trip history ────────────────────────────────────────────────────
+  // ── Fetch trip history ─────────────────────────────────────────────────────
 
-  /// Returns all completed/cancelled trips for this driver.
-  /// Backend: GET /driver/trips?status=completed,cancelled
   Future<RequestListResult> getTripHistory() async {
     try {
       if (AppConfig.useMockApi) {
@@ -184,6 +177,8 @@ class DriverService {
     try {
       if (AppConfig.useMockApi) {
         await Future<void>.delayed(const Duration(milliseconds: 600));
+        MockState.instance.updateStatus(requestId, RequestStatus.completed);
+        MockState.instance.clear();
         _log('Trip $requestId completed (mock)');
         return DriverResult.success();
       }

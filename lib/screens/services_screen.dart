@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:geolocator/geolocator.dart';
 import '../theme/app_theme.dart';
 import '../services/registration_service.dart';
 import '../services/transport_service.dart';
+import '../services/event_service.dart';
 
 class ServicesScreen extends StatelessWidget {
   const ServicesScreen({super.key});
@@ -193,7 +195,6 @@ class _ServiceTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // OVERFLOW FIX: title shrinks, tag never wraps
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -202,10 +203,7 @@ class _ServiceTile extends StatelessWidget {
                           service['title'],
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
-                          style: GoogleFonts.outfit(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.textDark),
+                          style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.textDark),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -216,11 +214,8 @@ class _ServiceTile extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: color.withOpacity(0.2)),
                         ),
-                        child: Text(
-                          service['tag'],
-                          style: GoogleFonts.outfit(
-                              fontSize: 9.5, fontWeight: FontWeight.w700, color: color),
-                        ),
+                        child: Text(service['tag'],
+                            style: GoogleFonts.outfit(fontSize: 9.5, fontWeight: FontWeight.w700, color: color)),
                       ),
                     ],
                   ),
@@ -248,8 +243,7 @@ class _ServiceTile extends StatelessWidget {
                       const Spacer(),
                       Row(
                         children: [
-                          Text('Proceed',
-                              style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+                          Text('Proceed', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
                           const SizedBox(width: 4),
                           Icon(Icons.arrow_forward_ios_rounded, size: 11, color: color),
                         ],
@@ -297,9 +291,7 @@ class EmergencyDetailScreen extends StatelessWidget {
                 width: 130, height: 130,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: const RadialGradient(
-                    colors: [Color(0xFFFFF0F0), Color(0xFFFFE0E0)],
-                  ),
+                  gradient: const RadialGradient(colors: [Color(0xFFFFF0F0), Color(0xFFFFE0E0)]),
                   border: Border.all(color: AppTheme.crimson.withOpacity(0.25), width: 2),
                   boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.15), blurRadius: 30, offset: const Offset(0, 10))],
                 ),
@@ -327,7 +319,7 @@ class EmergencyDetailScreen extends StatelessWidget {
                   HapticFeedback.heavyImpact();
                   showDialog(
                     context: context,
-                    builder: (_) => _SuccessDialog(
+                    builder: (_) => const _SuccessDialog(
                       title: 'Ambulance Requested',
                       message: 'Your request has been sent. A dispatcher will contact you shortly.',
                     ),
@@ -343,10 +335,72 @@ class EmergencyDetailScreen extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-//  BLS DETAIL
+//  BLS DETAIL — wired to backend
 // ─────────────────────────────────────────────
-class BLSDetailScreen extends StatelessWidget {
+class BLSDetailScreen extends StatefulWidget {
   const BLSDetailScreen({super.key});
+
+  @override
+  State<BLSDetailScreen> createState() => _BLSDetailScreenState();
+}
+
+class _BLSDetailScreenState extends State<BLSDetailScreen> {
+  bool _submitting = false;
+
+  Future<void> _requestBls() async {
+    if (_submitting) return;
+    HapticFeedback.heavyImpact();
+    setState(() => _submitting = true);
+
+    // Try to get GPS
+    double lat = 10.3220, lng = 123.8920;
+    String? address;
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm != LocationPermission.denied && perm != LocationPermission.deniedForever) {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 10)),
+        );
+        lat = pos.latitude;
+        lng = pos.longitude;
+      }
+    } catch (_) {}
+
+    // Also try registered address as fallback label
+    final reg = await RegistrationService.instance.loadRegistration();
+    if (reg != null && reg.address.isNotEmpty) address = reg.address;
+
+    final result = await EventService.instance.submitBls(
+      latitude: lat,
+      longitude: lng,
+      address: address,
+    );
+
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (result.success) {
+      showDialog(
+        context: context,
+        builder: (_) => _SuccessDialog(
+          title: 'BLS Ambulance Requested',
+          message: 'Your BLS request has been submitted. A dispatcher will contact you shortly.\n\nRef: ${result.id}',
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.errorMessage ?? 'Request failed. Please try again.',
+            style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white)),
+        backgroundColor: AppTheme.crimson,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        margin: const EdgeInsets.all(16),
+      ));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -373,9 +427,7 @@ class BLSDetailScreen extends StatelessWidget {
                 width: 130, height: 130,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: const RadialGradient(
-                    colors: [Color(0xFFFFF0F0), Color(0xFFFFE0E0)],
-                  ),
+                  gradient: const RadialGradient(colors: [Color(0xFFFFF0F0), Color(0xFFFFE0E0)]),
                   border: Border.all(color: AppTheme.crimson.withOpacity(0.25), width: 2),
                   boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.15), blurRadius: 30, offset: const Offset(0, 10))],
                 ),
@@ -397,18 +449,9 @@ class BLSDetailScreen extends StatelessWidget {
               _InfoBadge(icon: Icons.medical_services_rounded, label: 'Full BLS Equipment On Board', color: AppTheme.blue),
               const SizedBox(height: 36),
               _PrimaryButton(
-                label: 'REQUEST BLS AMBULANCE',
+                label: _submitting ? 'SUBMITTING...' : 'REQUEST BLS AMBULANCE',
                 icon: Icons.airport_shuttle_rounded,
-                onTap: () {
-                  HapticFeedback.heavyImpact();
-                  showDialog(
-                    context: context,
-                    builder: (_) => _SuccessDialog(
-                      title: 'BLS Ambulance Requested',
-                      message: 'Your BLS request has been sent. A dispatcher will contact you shortly.',
-                    ),
-                  );
-                },
+                onTap: _submitting ? () {} : _requestBls,
               ),
             ],
           ),
@@ -493,23 +536,17 @@ class _NonEmergencyBookingScreenState extends State<NonEmergencyBookingScreen> {
         _pickupCtrl.text.trim().isEmpty ||
         _hospitalCtrl.text.trim().isEmpty ||
         _contactCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please fill in all fields.',
-              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Please fill in all fields.', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+        behavior: SnackBarBehavior.floating,
+      ));
       return;
     }
     if (_selectedDateTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please choose date and time.',
-              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Please choose date and time.', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+        behavior: SnackBarBehavior.floating,
+      ));
       return;
     }
 
@@ -525,20 +562,14 @@ class _NonEmergencyBookingScreenState extends State<NonEmergencyBookingScreen> {
     setState(() => _submittingTransport = false);
 
     if (result.success) {
-      _showConfirmation(
-        context,
-        'Transport Booked!',
-        'Your request is saved and pending dispatch. Reference: ${result.id}',
-      );
+      _showConfirmation(context, 'Transport Booked!',
+          'Your request is saved and pending dispatch. Reference: ${result.id}');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.errorMessage ?? 'Booking failed.',
-              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: AppTheme.crimson,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.errorMessage ?? 'Booking failed.', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppTheme.crimson,
+      ));
     }
   }
 
@@ -594,7 +625,7 @@ class _NonEmergencyBookingScreenState extends State<NonEmergencyBookingScreen> {
 }
 
 // ─────────────────────────────────────────────
-//  EVENT MEDICAL STANDBY BOOKING
+//  EVENT MEDICAL STANDBY BOOKING — wired to backend
 // ─────────────────────────────────────────────
 class EventStandbyBookingScreen extends StatefulWidget {
   const EventStandbyBookingScreen({super.key});
@@ -609,6 +640,16 @@ class _EventStandbyBookingScreenState extends State<EventStandbyBookingScreen> {
   final _attendeesCtrl = TextEditingController();
   final _contactPersonCtrl = TextEditingController();
   DateTime? _selectedDateTime;
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _eventNameCtrl.dispose();
+    _locationCtrl.dispose();
+    _attendeesCtrl.dispose();
+    _contactPersonCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _pickDateTime() async {
     final date = await showDatePicker(
@@ -634,6 +675,55 @@ class _EventStandbyBookingScreenState extends State<EventStandbyBookingScreen> {
     setState(() {
       _selectedDateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
     });
+  }
+
+  Future<void> _submitStandby() async {
+    if (_submitting) return;
+    if (_locationCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Location is required.', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+    if (_selectedDateTime == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Please choose event date and time.', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
+    setState(() => _submitting = true);
+
+    final result = await EventService.instance.submitStandby(
+      eventName: _eventNameCtrl.text.trim(),
+      location: _locationCtrl.text.trim(),
+      eventDate: _selectedDateTime!.toIso8601String(),
+      expectedAttendees: _attendeesCtrl.text.trim(),
+      contactPerson: _contactPersonCtrl.text.trim(),
+    );
+
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (result.success) {
+      _showConfirmation(
+        context,
+        'Standby Requested!',
+        'Our team will contact you within 24 hours to confirm the medical standby details.\n\nRef: ${result.id}',
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.errorMessage ?? 'Booking failed. Please try again.',
+            style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white)),
+        backgroundColor: AppTheme.crimson,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        margin: const EdgeInsets.all(16),
+      ));
+    }
   }
 
   @override
@@ -675,10 +765,10 @@ class _EventStandbyBookingScreenState extends State<EventStandbyBookingScreen> {
             _DateTimeField(label: 'Event Date & Time', selectedDateTime: _selectedDateTime, onTap: _pickDateTime),
             const SizedBox(height: 32),
             _PrimaryButton(
-              label: 'REQUEST STANDBY',
+              label: _submitting ? 'SUBMITTING...' : 'REQUEST STANDBY',
               icon: Icons.event_rounded,
               color: AppTheme.blue,
-              onTap: () => _showConfirmation(context, 'Standby Requested!', 'Our team will contact you within 24 hours to confirm the medical standby details.'),
+              onTap: _submitting ? () {} : _submitStandby,
             ),
           ],
         ),
@@ -712,7 +802,6 @@ class _InfoBadge extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
-
   const _InfoBadge({required this.icon, required this.label, required this.color});
 
   @override
@@ -729,10 +818,7 @@ class _InfoBadge extends StatelessWidget {
         children: [
           Icon(icon, size: 17, color: color),
           const SizedBox(width: 10),
-          Expanded(
-            child: Text(label,
-                style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w600, color: color)),
-          ),
+          Expanded(child: Text(label, style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w600, color: color))),
         ],
       ),
     );
@@ -744,7 +830,6 @@ class _SectionHeader extends StatelessWidget {
   final Color color;
   final String title;
   final String subtitle;
-
   const _SectionHeader({required this.icon, required this.color, required this.title, required this.subtitle});
 
   @override
@@ -785,7 +870,6 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// Rectangular form card
 class _StyledFormCard extends StatelessWidget {
   final List<Widget> children;
   const _StyledFormCard({required this.children});
@@ -804,7 +888,6 @@ class _StyledFormCard extends StatelessWidget {
   }
 }
 
-// Rectangular input fields
 class _FormField extends StatelessWidget {
   final String label;
   final String hint;
@@ -845,25 +928,15 @@ class _FormField extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(label,
-                        style: GoogleFonts.outfit(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.textLight,
-                            letterSpacing: 0.2)),
+                        style: GoogleFonts.outfit(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppTheme.textLight, letterSpacing: 0.2)),
                     const SizedBox(height: 6),
                     TextField(
                       controller: controller,
                       keyboardType: keyboard,
-                      style: GoogleFonts.outfit(
-                          fontSize: 16,
-                          color: AppTheme.textDark,
-                          fontWeight: FontWeight.w500),
+                      style: GoogleFonts.outfit(fontSize: 16, color: AppTheme.textDark, fontWeight: FontWeight.w500),
                       decoration: InputDecoration(
                         hintText: hint,
-                        hintStyle: GoogleFonts.outfit(
-                            fontSize: 16,
-                            color: AppTheme.textLight,
-                            fontWeight: FontWeight.w400),
+                        hintStyle: GoogleFonts.outfit(fontSize: 16, color: AppTheme.textLight, fontWeight: FontWeight.w400),
                         border: InputBorder.none,
                         isDense: true,
                         contentPadding: EdgeInsets.zero,
@@ -882,7 +955,6 @@ class _FormField extends StatelessWidget {
   }
 }
 
-// Rectangular date/time field
 class _DateTimeField extends StatelessWidget {
   final String label;
   final DateTime? selectedDateTime;
@@ -910,18 +982,13 @@ class _DateTimeField extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: hasValue ? AppTheme.blue.withOpacity(0.3) : AppTheme.border),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 3)),
-          ],
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 3))],
         ),
         child: Row(
           children: [
             Container(
               width: 44, height: 44,
-              decoration: BoxDecoration(
-                color: AppTheme.blue.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
+              decoration: BoxDecoration(color: AppTheme.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
               child: const Icon(Icons.calendar_today_outlined, color: AppTheme.blue, size: 20),
             ),
             const SizedBox(width: 14),
@@ -929,19 +996,15 @@ class _DateTimeField extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label,
-                      style: GoogleFonts.outfit(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppTheme.textLight)),
+                  Text(label, style: GoogleFonts.outfit(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppTheme.textLight)),
                   const SizedBox(height: 4),
                   Text(_displayText,
-                      style: GoogleFonts.outfit(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
+                      style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w500,
                           color: hasValue ? AppTheme.textDark : AppTheme.textLight)),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded,
-                color: hasValue ? AppTheme.blue : AppTheme.textLight, size: 22),
+            Icon(Icons.chevron_right_rounded, color: hasValue ? AppTheme.blue : AppTheme.textLight, size: 22),
           ],
         ),
       ),
@@ -990,8 +1053,7 @@ class _PrimaryButton extends StatelessWidget {
             Icon(icon, color: Colors.white, size: 22),
             const SizedBox(width: 12),
             Text(label,
-                style: GoogleFonts.outfit(
-                    fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1.0)),
+                style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1.0)),
           ],
         ),
       ),
@@ -1023,8 +1085,7 @@ class _SuccessDialog extends StatelessWidget {
               child: const Icon(Icons.check_rounded, color: AppTheme.success, size: 36),
             ),
             const SizedBox(height: 20),
-            Text(title,
-                style: GoogleFonts.outfit(fontSize: 19, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+            Text(title, style: GoogleFonts.outfit(fontSize: 19, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
             const SizedBox(height: 10),
             Text(message,
                 style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textMid, height: 1.5),
@@ -1043,8 +1104,7 @@ class _SuccessDialog extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   boxShadow: [BoxShadow(color: AppTheme.success.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 5))],
                 ),
-                child: Text('Done',
-                    textAlign: TextAlign.center,
+                child: Text('Done', textAlign: TextAlign.center,
                     style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
               ),
             ),
@@ -1056,8 +1116,5 @@ class _SuccessDialog extends StatelessWidget {
 }
 
 void _showConfirmation(BuildContext context, String title, String message) {
-  showDialog(
-    context: context,
-    builder: (_) => _SuccessDialog(title: title, message: message),
-  );
+  showDialog(context: context, builder: (_) => _SuccessDialog(title: title, message: message));
 }

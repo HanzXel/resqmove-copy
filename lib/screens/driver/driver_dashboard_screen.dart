@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../theme/app_theme.dart';
 import '../../models/models.dart';
 import '../../services/auth_service.dart';
@@ -26,10 +27,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   AmbulanceRequestModel? _activeTrip;
   DriverStats _stats = DriverStats.empty();
   Timer? _pollTimer;
+  Timer? _gpsTimer;
   bool _acceptBusy = false;
 
   final MapController _mapController = MapController();
-  static const LatLng _driverPos = LatLng(10.3220, 123.8920);
+
+  // [FIX] Driver position starts at a default but is replaced with real GPS
+  static const LatLng _defaultPos = LatLng(10.3220, 123.8920);
+  LatLng _driverPos = _defaultPos;
+  String _locationLabel = 'Locating…';
 
   @override
   void initState() {
@@ -37,13 +43,50 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     final d = AuthService.instance.currentDriver;
     _isAvailable = d?.status == DriverStatus.available;
     unawaited(_refreshAll());
+    unawaited(_fetchGps()); // get GPS immediately
     _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) => _refreshAll());
+    // [FIX] Refresh driver GPS position every 15 seconds on the dashboard map
+    _gpsTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchGps());
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _gpsTimer?.cancel();
     super.dispose();
+  }
+
+  // [FIX] Fetch real GPS and update the map marker
+  Future<void> _fetchGps() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      if (!mounted) return;
+      final newPos = LatLng(pos.latitude, pos.longitude);
+      setState(() {
+        _driverPos = newPos;
+        _locationLabel =
+            '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
+      });
+      // Move map to follow the driver
+      try {
+        _mapController.move(newPos, 15);
+      } catch (_) {}
+    } catch (_) {
+      // GPS unavailable — keep last known position
+    }
   }
 
   Future<void> _refreshAll() async {
@@ -553,6 +596,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     );
   }
 
+  // [FIX] Map now uses live _driverPos instead of a hardcoded static constant
   Widget _buildMap() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 22, 16, 0),
@@ -599,7 +643,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   children: [
                     FlutterMap(
                       mapController: _mapController,
-                      options: const MapOptions(initialCenter: _driverPos, initialZoom: 15),
+                      options: MapOptions(initialCenter: _driverPos, initialZoom: 15),
                       children: [
                         TileLayer(
                           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -630,6 +674,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         ),
                       ],
                     ),
+                    // [FIX] Location label shows real coordinates
                     Positioned(
                       bottom: 12, left: 12,
                       child: Container(
@@ -643,7 +688,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                           children: [
                             const Icon(Icons.location_on_rounded, color: AppTheme.crimson, size: 14),
                             const SizedBox(width: 5),
-                            Text('Cebu City, PH',
+                            Text(_locationLabel,
                                 style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textDark)),
                           ],
                         ),
@@ -652,7 +697,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                     Positioned(
                       bottom: 12, right: 12,
                       child: GestureDetector(
-                        onTap: () => _mapController.move(_driverPos, 15),
+                        onTap: () {
+                          _mapController.move(_driverPos, 15);
+                          unawaited(_fetchGps());
+                        },
                         child: Container(
                           width: 40, height: 40,
                           decoration: BoxDecoration(
