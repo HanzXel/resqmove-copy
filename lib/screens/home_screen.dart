@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -5,6 +7,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../config/app_config.dart';
+import '../models/models.dart';
 import '../services/request_service.dart';
 import '../services/registration_service.dart';
 import 'driver/driver_login_screen.dart';
@@ -138,13 +142,11 @@ void _showRequestAmbulanceModal(BuildContext context) {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Drag handle
                 Container(
                   margin: const EdgeInsets.only(top: 14),
                   width: 44, height: 5,
                   decoration: BoxDecoration(color: AppTheme.border, borderRadius: BorderRadius.circular(3)),
                 ),
-                // Header banner
                 Container(
                   margin: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                   padding: const EdgeInsets.all(22),
@@ -189,7 +191,6 @@ void _showRequestAmbulanceModal(BuildContext context) {
                   ]),
                 ),
                 const SizedBox(height: 14),
-                // Emergency type list
                 SizedBox(
                   height: 300,
                   child: ListView.builder(
@@ -256,7 +257,6 @@ void _showRequestAmbulanceModal(BuildContext context) {
                     },
                   ),
                 ),
-                // Confirm button
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 14, 20, 44),
                   child: GestureDetector(
@@ -328,14 +328,14 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _preparednessVisible = true;
-
-  // ── Barangay loaded from registered profile ──────────────────────────────
   String? _userBarangay;
+  AppStatsModel _stats = AppStatsModel.empty();
 
   @override
   void initState() {
     super.initState();
     _loadBarangay();
+    _loadStats();
   }
 
   Future<void> _loadBarangay() async {
@@ -343,6 +343,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted && data != null && data.barangay.isNotEmpty) {
       setState(() => _userBarangay = data.barangay);
     }
+  }
+
+  Future<void> _loadStats() async {
+    final stats = await RequestService.instance.getAppStats();
+    if (mounted) setState(() => _stats = stats);
   }
 
   @override
@@ -353,14 +358,13 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           children: [
             _HeroSection(),
-            // ── Emergency Preparedness Banner (dismissible) ──
             if (_preparednessVisible)
               _EmergencyPreparednessBanner(
                 barangay: _userBarangay,
                 onDismiss: () => setState(() => _preparednessVisible = false),
               ),
             _QuickAccessSection(),
-            _StatsBar(),
+            _StatsBar(stats: _stats),
             _ServicesSection(),
             _HotlineSection(),
             const SizedBox(height: 40),
@@ -372,19 +376,11 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  EMERGENCY PREPAREDNESS BANNER  (Panelist Item #2)
-//
-//  Shows a barangay-specific community notice encouraging
-//  residents to install the app before an emergency happens.
-//  The banner is dismissible and re-shown on next launch until
-//  the user explicitly closes it.
+//  EMERGENCY PREPAREDNESS BANNER
 // ═══════════════════════════════════════════════════════════
 
 class _EmergencyPreparednessBanner extends StatefulWidget {
   final VoidCallback onDismiss;
-
-  /// The registered barangay of the current user.
-  /// When provided, the banner message is personalised to that barangay.
   final String? barangay;
 
   const _EmergencyPreparednessBanner({
@@ -411,13 +407,11 @@ class _EmergencyPreparednessBannerState
     super.dispose();
   }
 
-  /// Returns the barangay display name, falling back to a generic label.
   String get _barangayLabel =>
       (widget.barangay != null && widget.barangay!.isNotEmpty)
           ? widget.barangay!
           : 'your barangay';
 
-  /// Whether we have an actual registered barangay.
   bool get _hasBarangay =>
       widget.barangay != null && widget.barangay!.isNotEmpty;
 
@@ -474,7 +468,6 @@ class _EmergencyPreparednessBannerState
           ),
           child: Stack(
             children: [
-              // Background decorations
               Positioned(
                 right: -20, top: -20,
                 child: Container(
@@ -499,14 +492,11 @@ class _EmergencyPreparednessBannerState
                   ),
                 ),
               ),
-
-              // Content
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── Header row ───────────────────────────────────────
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -516,7 +506,6 @@ class _EmergencyPreparednessBannerState
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Barangay badge (shows actual barangay if registered)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                                 decoration: BoxDecoration(
@@ -527,11 +516,7 @@ class _EmergencyPreparednessBannerState
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(
-                                      Icons.location_city_rounded,
-                                      size: 10,
-                                      color: Color(0xFFFF8C00),
-                                    ),
+                                    const Icon(Icons.location_city_rounded, size: 10, color: Color(0xFFFF8C00)),
                                     const SizedBox(width: 4),
                                     Flexible(
                                       child: Text(
@@ -540,10 +525,8 @@ class _EmergencyPreparednessBannerState
                                             : '⚠️  COMMUNITY NOTICE',
                                         overflow: TextOverflow.ellipsis,
                                         style: GoogleFonts.outfit(
-                                          fontSize: 9.5,
-                                          fontWeight: FontWeight.w800,
-                                          color: const Color(0xFFFF8C00),
-                                          letterSpacing: 1.0,
+                                          fontSize: 9.5, fontWeight: FontWeight.w800,
+                                          color: const Color(0xFFFF8C00), letterSpacing: 1.0,
                                         ),
                                       ),
                                     ),
@@ -554,17 +537,13 @@ class _EmergencyPreparednessBannerState
                               Text(
                                 'Be Ready Before\nAn Emergency Strikes',
                                 style: GoogleFonts.outfit(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w900,
-                                  color: Colors.white,
-                                  height: 1.2,
-                                  letterSpacing: -0.3,
+                                  fontSize: 17, fontWeight: FontWeight.w900,
+                                  color: Colors.white, height: 1.2, letterSpacing: -0.3,
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        // Dismiss button
                         GestureDetector(
                           onTap: () {
                             HapticFeedback.selectionClick();
@@ -582,43 +561,28 @@ class _EmergencyPreparednessBannerState
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 14),
-
-                    // ── Body text (personalised per barangay) ─────────────
                     Text(
                       _hasBarangay
                           ? 'ResQmove is now available in $_barangayLabel. '
                             'Install the app in advance so you can call for an ambulance instantly — '
                             'share this with your neighbors and barangay officials.'
                           : 'ResQmove is now available in your barangay. Install the app in advance so you can call for an ambulance instantly when every second counts.',
-                      style: GoogleFonts.outfit(
-                        fontSize: 12.5,
-                        color: Colors.white70,
-                        height: 1.55,
-                      ),
+                      style: GoogleFonts.outfit(fontSize: 12.5, color: Colors.white70, height: 1.55),
                     ),
-
                     const SizedBox(height: 16),
-
-                    // ── How-to tip chips ──────────────────────────────────
                     Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                      spacing: 8, runSpacing: 8,
                       children: const [
-                        _TipChip(icon: Icons.download_rounded,        label: 'Install now',       color: Color(0xFF00C9FF)),
-                        _TipChip(icon: Icons.person_add_rounded,      label: 'Register profile',  color: Color(0xFF7CFC00)),
-                        _TipChip(icon: Icons.share_rounded,           label: 'Share with others', color: Color(0xFFFF8C00)),
-                        _TipChip(icon: Icons.location_on_rounded,     label: 'Enable GPS',        color: Color(0xFFD4A5FF)),
+                        _TipChip(icon: Icons.download_rounded,    label: 'Install now',       color: Color(0xFF00C9FF)),
+                        _TipChip(icon: Icons.person_add_rounded,  label: 'Register profile',  color: Color(0xFF7CFC00)),
+                        _TipChip(icon: Icons.share_rounded,       label: 'Share with others', color: Color(0xFFFF8C00)),
+                        _TipChip(icon: Icons.location_on_rounded, label: 'Enable GPS',        color: Color(0xFFD4A5FF)),
                       ],
                     ),
-
                     const SizedBox(height: 18),
-
-                    // ── CTA buttons ───────────────────────────────────────
                     Row(
                       children: [
-                        // Spread the word — opens share sheet with barangay-personalised message
                         Expanded(
                           child: GestureDetector(
                             onTap: () {
@@ -630,38 +594,24 @@ class _EmergencyPreparednessBannerState
                               decoration: BoxDecoration(
                                 gradient: const LinearGradient(
                                   colors: [Color(0xFFFF8C00), Color(0xFFFF6B35)],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
+                                  begin: Alignment.topLeft, end: Alignment.bottomRight,
                                 ),
                                 borderRadius: BorderRadius.circular(16),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xFFFF8C00).withOpacity(0.40),
-                                    blurRadius: 16,
-                                    offset: const Offset(0, 6),
-                                  ),
-                                ],
+                                boxShadow: [BoxShadow(color: const Color(0xFFFF8C00).withOpacity(0.40), blurRadius: 16, offset: const Offset(0, 6))],
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   const Icon(Icons.campaign_rounded, color: Colors.white, size: 17),
                                   const SizedBox(width: 7),
-                                  Text(
-                                    'Spread the Word',
-                                    style: GoogleFonts.outfit(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.white,
-                                    ),
-                                  ),
+                                  Text('Spread the Word',
+                                      style: GoogleFonts.outfit(fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.white)),
                                 ],
                               ),
                             ),
                           ),
                         ),
                         const SizedBox(width: 10),
-                        // Learn more
                         GestureDetector(
                           onTap: () {
                             HapticFeedback.selectionClick();
@@ -678,14 +628,8 @@ class _EmergencyPreparednessBannerState
                               children: [
                                 const Icon(Icons.info_outline_rounded, color: Colors.white70, size: 16),
                                 const SizedBox(width: 6),
-                                Text(
-                                  'Learn more',
-                                  style: GoogleFonts.outfit(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white70,
-                                  ),
-                                ),
+                                Text('Learn more',
+                                    style: GoogleFonts.outfit(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.white70)),
                               ],
                             ),
                           ),
@@ -703,7 +647,6 @@ class _EmergencyPreparednessBannerState
   }
 }
 
-// ─── Pulsing orange icon ───
 class _PulsingOrangeIcon extends StatefulWidget {
   @override
   State<_PulsingOrangeIcon> createState() => _PulsingOrangeIconState();
@@ -712,8 +655,7 @@ class _PulsingOrangeIcon extends StatefulWidget {
 class _PulsingOrangeIconState extends State<_PulsingOrangeIcon>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1200),
+    vsync: this, duration: const Duration(milliseconds: 1200),
   )..repeat(reverse: true);
 
   @override
@@ -728,24 +670,15 @@ class _PulsingOrangeIconState extends State<_PulsingOrangeIcon>
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           color: const Color(0xFFFF8C00).withOpacity(0.15 + _c.value * 0.10),
-          border: Border.all(
-            color: const Color(0xFFFF8C00).withOpacity(0.3 + _c.value * 0.2),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFFF8C00).withOpacity(0.2 + _c.value * 0.15),
-              blurRadius: 12 + _c.value * 8,
-            ),
-          ],
+          border: Border.all(color: const Color(0xFFFF8C00).withOpacity(0.3 + _c.value * 0.2)),
+          boxShadow: [BoxShadow(color: const Color(0xFFFF8C00).withOpacity(0.2 + _c.value * 0.15), blurRadius: 12 + _c.value * 8)],
         ),
-        child: const Icon(Icons.health_and_safety_rounded,
-            color: Color(0xFFFF8C00), size: 26),
+        child: const Icon(Icons.health_and_safety_rounded, color: Color(0xFFFF8C00), size: 26),
       ),
     );
   }
 }
 
-// ─── Tip chip ───
 class _TipChip extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -766,16 +699,13 @@ class _TipChip extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 13),
           const SizedBox(width: 5),
-          Text(label,
-              style: GoogleFonts.outfit(
-                  fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+          Text(label, style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
         ],
       ),
     );
   }
 }
 
-// ─── Preparedness guide bottom sheet ───
 void _showPreparednessGuide(BuildContext context) {
   showModalBottomSheet(
     context: context,
@@ -795,18 +725,13 @@ void _showPreparednessGuide(BuildContext context) {
             Container(
               margin: const EdgeInsets.only(top: 14),
               width: 44, height: 5,
-              decoration: BoxDecoration(
-                  color: AppTheme.border, borderRadius: BorderRadius.circular(3)),
+              decoration: BoxDecoration(color: AppTheme.border, borderRadius: BorderRadius.circular(3)),
             ),
-            // Header
             Container(
               margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF1A1A2E), Color(0xFF0F3460)],
-                  begin: Alignment.topLeft, end: Alignment.bottomRight,
-                ),
+                gradient: const LinearGradient(colors: [Color(0xFF1A1A2E), Color(0xFF0F3460)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                 borderRadius: BorderRadius.circular(24),
               ),
               child: Row(children: [
@@ -817,60 +742,35 @@ void _showPreparednessGuide(BuildContext context) {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFFF8C00).withOpacity(0.35)),
                   ),
-                  child: const Icon(Icons.health_and_safety_rounded,
-                      color: Color(0xFFFF8C00), size: 26),
+                  child: const Icon(Icons.health_and_safety_rounded, color: Color(0xFFFF8C00), size: 26),
                 ),
                 const SizedBox(width: 14),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Emergency Preparedness',
-                      style: GoogleFonts.outfit(
-                          fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
-                  Text('How to use ResQmove before an emergency',
-                      style: GoogleFonts.outfit(fontSize: 11, color: Colors.white60)),
+                  Text('Emergency Preparedness', style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+                  Text('How to use ResQmove before an emergency', style: GoogleFonts.outfit(fontSize: 11, color: Colors.white60)),
                 ])),
               ]),
             ),
-            // Steps
             Expanded(
               child: ListView(
                 controller: ctrl,
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
                 children: const [
-                  _GuideStep(
-                    number: '1',
-                    title: 'Install the App Now',
+                  _GuideStep(number: '1', title: 'Install the App Now',
                     body: 'Download ResQmove and keep it on your home screen. During an emergency, you won\'t have time to search for an app.',
-                    icon: Icons.download_rounded,
-                    color: Color(0xFF00C9FF),
-                  ),
-                  _GuideStep(
-                    number: '2',
-                    title: 'Register Your Profile',
+                    icon: Icons.download_rounded, color: Color(0xFF00C9FF)),
+                  _GuideStep(number: '2', title: 'Register Your Profile',
                     body: 'Sign up with your basic details and home address. This speeds up dispatch — especially when GPS is slow or inaccurate.',
-                    icon: Icons.person_add_rounded,
-                    color: Color(0xFF7CFC00),
-                  ),
-                  _GuideStep(
-                    number: '3',
-                    title: 'Enable Location Access',
+                    icon: Icons.person_add_rounded, color: Color(0xFF7CFC00)),
+                  _GuideStep(number: '3', title: 'Enable Location Access',
                     body: 'Allow ResQmove to access your GPS. Your exact location is sent to the command center the moment you request help.',
-                    icon: Icons.location_on_rounded,
-                    color: Color(0xFFD4A5FF),
-                  ),
-                  _GuideStep(
-                    number: '4',
-                    title: 'Save Emergency Contacts',
+                    icon: Icons.location_on_rounded, color: Color(0xFFD4A5FF)),
+                  _GuideStep(number: '4', title: 'Save Emergency Contacts',
                     body: 'Add a secondary contact in your profile — a family member or neighbor who can be reached if you are unable to communicate.',
-                    icon: Icons.contacts_rounded,
-                    color: Color(0xFFFF8C00),
-                  ),
-                  _GuideStep(
-                    number: '5',
-                    title: 'Share with Your Barangay',
+                    icon: Icons.contacts_rounded, color: Color(0xFFFF8C00)),
+                  _GuideStep(number: '5', title: 'Share with Your Barangay',
                     body: 'Tell your neighbors, family, and barangay officials about ResQmove. The more residents who install it, the faster emergencies can be handled.',
-                    icon: Icons.campaign_rounded,
-                    color: AppTheme.crimson,
-                  ),
+                    icon: Icons.campaign_rounded, color: AppTheme.crimson),
                 ],
               ),
             ),
@@ -885,10 +785,7 @@ class _GuideStep extends StatelessWidget {
   final String number, title, body;
   final IconData icon;
   final Color color;
-  const _GuideStep({
-    required this.number, required this.title, required this.body,
-    required this.icon, required this.color,
-  });
+  const _GuideStep({required this.number, required this.title, required this.body, required this.icon, required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -896,24 +793,16 @@ class _GuideStep extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        color: Colors.white, borderRadius: BorderRadius.circular(22),
         border: Border.all(color: color.withOpacity(0.18)),
-        boxShadow: [
-          BoxShadow(color: color.withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 5)),
-          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6),
-        ],
+        boxShadow: [BoxShadow(color: color.withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 5))],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             width: 46, height: 46,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: color.withOpacity(0.25)),
-            ),
+            decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(14), border: Border.all(color: color.withOpacity(0.25))),
             child: Icon(icon, color: color, size: 22),
           ),
           const SizedBox(width: 14),
@@ -922,26 +811,14 @@ class _GuideStep extends StatelessWidget {
               Row(children: [
                 Container(
                   width: 22, height: 22,
-                  decoration: BoxDecoration(
-                    color: color, borderRadius: BorderRadius.circular(7),
-                  ),
-                  child: Center(
-                    child: Text(number,
-                        style: GoogleFonts.outfit(
-                            fontSize: 11, fontWeight: FontWeight.w900, color: Colors.white)),
-                  ),
+                  decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(7)),
+                  child: Center(child: Text(number, style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.white))),
                 ),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: Text(title,
-                      style: GoogleFonts.outfit(
-                          fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
-                ),
+                Expanded(child: Text(title, style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.textDark))),
               ]),
               const SizedBox(height: 7),
-              Text(body,
-                  style: GoogleFonts.outfit(
-                      fontSize: 12.5, color: AppTheme.textMid, height: 1.5)),
+              Text(body, style: GoogleFonts.outfit(fontSize: 12.5, color: AppTheme.textMid, height: 1.5)),
             ]),
           ),
         ],
@@ -950,9 +827,7 @@ class _GuideStep extends StatelessWidget {
   }
 }
 
-// ─── Share with community sheet ───
 class _ShareCommunitySheet extends StatelessWidget {
-  /// Optional barangay name — personalises the share message.
   final String? barangay;
   const _ShareCommunitySheet({this.barangay});
 
@@ -963,110 +838,64 @@ class _ShareCommunitySheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.only(bottom: 40),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-      ),
+      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            margin: const EdgeInsets.only(top: 14),
-            width: 44, height: 5,
-            decoration: BoxDecoration(
-                color: AppTheme.border, borderRadius: BorderRadius.circular(3)),
-          ),
-          // Header
+          Container(margin: const EdgeInsets.only(top: 14), width: 44, height: 5,
+              decoration: BoxDecoration(color: AppTheme.border, borderRadius: BorderRadius.circular(3))),
           Container(
             margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFFF8C00), Color(0xFFFF6B35)],
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-              ),
+              gradient: const LinearGradient(colors: [Color(0xFFFF8C00), Color(0xFFFF6B35)], begin: Alignment.topLeft, end: Alignment.bottomRight),
               borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFFF8C00).withOpacity(0.35),
-                  blurRadius: 20, offset: const Offset(0, 8),
-                ),
-              ],
+              boxShadow: [BoxShadow(color: const Color(0xFFFF8C00).withOpacity(0.35), blurRadius: 20, offset: const Offset(0, 8))],
             ),
             child: Row(children: [
               Container(
                 width: 52, height: 52,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.3)),
-                ),
+                decoration: BoxDecoration(color: Colors.white.withOpacity(0.18), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withOpacity(0.3))),
                 child: const Icon(Icons.campaign_rounded, color: Colors.white, size: 28),
               ),
               const SizedBox(width: 14),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Spread the Word',
-                    style: GoogleFonts.outfit(
-                        fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
-                Text('Help $_barangayLabel stay prepared',
-                    style: GoogleFonts.outfit(fontSize: 12, color: Colors.white70)),
+                Text('Spread the Word', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+                Text('Help $_barangayLabel stay prepared', style: GoogleFonts.outfit(fontSize: 12, color: Colors.white70)),
               ])),
             ]),
           ),
           const SizedBox(height: 22),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Text(
-              'Share this message with neighbors, family, and barangay officials:',
-              style: GoogleFonts.outfit(
-                  fontSize: 13, color: AppTheme.textMid, fontWeight: FontWeight.w500),
-            ),
+            child: Text('Share this message with neighbors, family, and barangay officials:',
+                style: GoogleFonts.outfit(fontSize: 13, color: AppTheme.textMid, fontWeight: FontWeight.w500)),
           ),
           const SizedBox(height: 14),
-          // Message preview card — barangay-personalised
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 20),
             padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF7F9FC),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppTheme.border),
-            ),
+            decoration: BoxDecoration(color: const Color(0xFFF7F9FC), borderRadius: BorderRadius.circular(20), border: Border.all(color: AppTheme.border)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  Container(
-                    width: 28, height: 28,
-                    decoration: BoxDecoration(
-                      color: AppTheme.crimson,
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                    child: const Icon(Icons.add, color: Colors.white, size: 16),
-                  ),
+                  Container(width: 28, height: 28, decoration: BoxDecoration(color: AppTheme.crimson, borderRadius: BorderRadius.circular(9)),
+                      child: const Icon(Icons.add, color: Colors.white, size: 16)),
                   const SizedBox(width: 8),
-                  Text('ResQmove',
-                      style: GoogleFonts.outfit(
-                          fontSize: 13, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+                  Text('ResQmove', style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
                 ]),
                 const SizedBox(height: 10),
-                Text(
-                  _preparednessShareBody(barangay),
-                  style: GoogleFonts.outfit(
-                      fontSize: 12.5, color: AppTheme.textMid, height: 1.55),
-                ),
+                Text(_preparednessShareBody(barangay), style: GoogleFonts.outfit(fontSize: 12.5, color: AppTheme.textMid, height: 1.55)),
               ],
             ),
           ),
           const SizedBox(height: 20),
-          // Share channel buttons
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Column(children: [
               _ShareChannelButton(
-                icon: Icons.facebook_rounded,
-                label: 'Share on Facebook',
-                color: const Color(0xFF1877F2),
+                icon: Icons.facebook_rounded, label: 'Share on Facebook', color: const Color(0xFF1877F2),
                 onTap: () async {
                   final text = _preparednessShareBody(barangay);
                   Navigator.pop(context);
@@ -1075,9 +904,7 @@ class _ShareCommunitySheet extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               _ShareChannelButton(
-                icon: Icons.chat_bubble_rounded,
-                label: 'Share via SMS / Viber',
-                color: const Color(0xFF7360F2),
+                icon: Icons.chat_bubble_rounded, label: 'Share via SMS / Viber', color: const Color(0xFF7360F2),
                 onTap: () async {
                   final text = _preparednessShareBody(barangay);
                   Navigator.pop(context);
@@ -1095,9 +922,7 @@ class _ShareCommunitySheet extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               _ShareChannelButton(
-                icon: Icons.share_rounded,
-                label: 'More sharing options',
-                color: AppTheme.textMid,
+                icon: Icons.share_rounded, label: 'More sharing options', color: AppTheme.textMid,
                 onTap: () async {
                   final text = _preparednessShareBody(barangay);
                   Navigator.pop(context);
@@ -1117,10 +942,7 @@ class _ShareChannelButton extends StatelessWidget {
   final String label;
   final Color color;
   final Future<void> Function() onTap;
-  const _ShareChannelButton({
-    required this.icon, required this.label,
-    required this.color, required this.onTap,
-  });
+  const _ShareChannelButton({required this.icon, required this.label, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1133,23 +955,13 @@ class _ShareChannelButton extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.07),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withOpacity(0.22)),
+          color: color.withOpacity(0.07), borderRadius: BorderRadius.circular(18), border: Border.all(color: color.withOpacity(0.22)),
         ),
         child: Row(children: [
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: Icon(icon, color: color, size: 18),
-          ),
+          Container(width: 36, height: 36, decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(11)),
+              child: Icon(icon, color: color, size: 18)),
           const SizedBox(width: 12),
-          Text(label,
-              style: GoogleFonts.outfit(
-                  fontSize: 14, fontWeight: FontWeight.w700, color: color)),
+          Text(label, style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w700, color: color)),
           const Spacer(),
           Icon(Icons.arrow_forward_ios_rounded, size: 13, color: color.withOpacity(0.6)),
         ]),
@@ -1158,15 +970,11 @@ class _ShareChannelButton extends StatelessWidget {
   }
 }
 
-// ─── Home hero: green (transport) + red (emergency) — Panel item #4 ───
 class _HomeDualActionButtons extends StatelessWidget {
   final VoidCallback onNonEmergency;
   final VoidCallback onEmergency;
 
-  const _HomeDualActionButtons({
-    required this.onNonEmergency,
-    required this.onEmergency,
-  });
+  const _HomeDualActionButtons({required this.onNonEmergency, required this.onEmergency});
 
   @override
   Widget build(BuildContext context) {
@@ -1174,135 +982,53 @@ class _HomeDualActionButtons extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         GestureDetector(
-          onTap: () {
-            HapticFeedback.mediumImpact();
-            onNonEmergency();
-          },
+          onTap: () { HapticFeedback.mediumImpact(); onNonEmergency(); },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(28),
-              gradient: const LinearGradient(
-                colors: [Color(0xFF00A86B), Color(0xFF00C851), Color(0xFF009952)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppTheme.success.withOpacity(0.42),
-                  blurRadius: 22,
-                  offset: const Offset(0, 8),
-                ),
-              ],
+              gradient: const LinearGradient(colors: [Color(0xFF00A86B), Color(0xFF00C851), Color(0xFF009952)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+              boxShadow: [BoxShadow(color: AppTheme.success.withOpacity(0.42), blurRadius: 22, offset: const Offset(0, 8))],
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(Icons.event_available_rounded,
-                      color: Colors.white, size: 22),
-                ),
+                Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(14)),
+                    child: const Icon(Icons.event_available_rounded, color: Colors.white, size: 22)),
                 const SizedBox(width: 14),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'NON-EMERGENCY',
-                        style: GoogleFonts.outfit(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                          letterSpacing: 0.6,
-                        ),
-                      ),
-                      Text(
-                        'Transport booking — pick date, time & locations',
-                        style: GoogleFonts.outfit(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white.withOpacity(0.88),
-                          height: 1.25,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(Icons.arrow_forward_ios_rounded,
-                    color: Colors.white.withOpacity(0.85), size: 14),
+                Flexible(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('NON-EMERGENCY', style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.6)),
+                  Text('Transport booking — pick date, time & locations',
+                      style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.white.withOpacity(0.88), height: 1.25)),
+                ])),
+                Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withOpacity(0.85), size: 14),
               ],
             ),
           ),
         ),
         const SizedBox(height: 12),
         GestureDetector(
-          onTap: () {
-            HapticFeedback.heavyImpact();
-            onEmergency();
-          },
+          onTap: () { HapticFeedback.heavyImpact(); onEmergency(); },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(28),
-              gradient: const LinearGradient(
-                colors: [Color(0xFFFF1A35), Color(0xFFD0021B), Color(0xFF9B0015)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppTheme.crimson.withOpacity(0.45),
-                  blurRadius: 24,
-                  offset: const Offset(0, 10),
-                ),
-              ],
+              gradient: const LinearGradient(colors: [Color(0xFFFF1A35), Color(0xFFD0021B), Color(0xFF9B0015)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+              boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.45), blurRadius: 24, offset: const Offset(0, 10))],
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
                   padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.white.withOpacity(0.25)),
-                  ),
-                  child: const Icon(Icons.emergency_rounded,
-                      color: Colors.white, size: 22),
-                ),
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.18), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white.withOpacity(0.25))),
+                  child: const Icon(Icons.emergency_rounded, color: Colors.white, size: 22)),
                 const SizedBox(width: 14),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'EMERGENCY',
-                        style: GoogleFonts.outfit(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                      Text(
-                        'Immediate help — request ambulance now',
-                        style: GoogleFonts.outfit(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white70,
-                          height: 1.25,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(Icons.arrow_forward_ios_rounded,
-                    color: Colors.white.withOpacity(0.85), size: 14),
+                Flexible(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('EMERGENCY', style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.8)),
+                  Text('Immediate help — request ambulance now', style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.white70, height: 1.25)),
+                ])),
+                Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withOpacity(0.85), size: 14),
               ],
             ),
           ),
@@ -1312,9 +1038,6 @@ class _HomeDualActionButtons extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-//  HERO SECTION
-// ─────────────────────────────────────────────
 class _HeroSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -1322,41 +1045,18 @@ class _HeroSection extends StatelessWidget {
       width: double.infinity,
       child: Stack(
         children: [
-          Container(
-            height: 540,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-                colors: [Color(0xFFFFF5F5), Color(0xFFFFFFFF), Color(0xFFECF3FF)],
-                stops: [0.0, 0.5, 1.0],
-              ),
-            ),
-          ),
-          Positioned(right: -60, top: -60,
-            child: Container(width: 300, height: 300,
-              decoration: BoxDecoration(shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [AppTheme.crimson.withOpacity(0.09), Colors.transparent],
-                  stops: const [0.3, 1.0],
-                )),
-            ),
-          ),
-          Positioned(left: -70, bottom: 30,
-            child: Container(width: 240, height: 240,
-              decoration: BoxDecoration(shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [AppTheme.blue.withOpacity(0.08), Colors.transparent],
-                  stops: const [0.3, 1.0],
-                )),
-            ),
-          ),
+          Container(height: 540, decoration: const BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+              colors: [Color(0xFFFFF5F5), Color(0xFFFFFFFF), Color(0xFFECF3FF)], stops: [0.0, 0.5, 1.0]),
+          )),
+          Positioned(right: -60, top: -60, child: Container(width: 300, height: 300,
+              decoration: BoxDecoration(shape: BoxShape.circle, gradient: RadialGradient(colors: [AppTheme.crimson.withOpacity(0.09), Colors.transparent], stops: const [0.3, 1.0])))),
+          Positioned(left: -70, bottom: 30, child: Container(width: 240, height: 240,
+              decoration: BoxDecoration(shape: BoxShape.circle, gradient: RadialGradient(colors: [AppTheme.blue.withOpacity(0.08), Colors.transparent], stops: const [0.3, 1.0])))),
           Positioned.fill(child: CustomPaint(painter: _DotGridPainter())),
-          Positioned(right: 30, top: 120,
-              child: _CrossIcon(size: 32, color: AppTheme.crimson.withOpacity(0.09))),
-          Positioned(left: 26, top: 230,
-              child: _CrossIcon(size: 20, color: AppTheme.blue.withOpacity(0.10))),
-          Positioned(right: 90, bottom: 90,
-              child: _CrossIcon(size: 16, color: AppTheme.crimson.withOpacity(0.07))),
+          Positioned(right: 30, top: 120, child: _CrossIcon(size: 32, color: AppTheme.crimson.withOpacity(0.09))),
+          Positioned(left: 26, top: 230, child: _CrossIcon(size: 20, color: AppTheme.blue.withOpacity(0.10))),
+          Positioned(right: 90, bottom: 90, child: _CrossIcon(size: 16, color: AppTheme.crimson.withOpacity(0.07))),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -1364,7 +1064,6 @@ class _HeroSection extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const SizedBox(height: 18),
-                  // Top bar
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -1372,12 +1071,8 @@ class _HeroSection extends StatelessWidget {
                         _LogoBadge(),
                         const SizedBox(width: 11),
                         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('ResQmove',
-                              style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.w800,
-                                  color: AppTheme.textDark, letterSpacing: 0.3)),
-                          Text('Emergency Services',
-                              style: GoogleFonts.outfit(fontSize: 10, fontWeight: FontWeight.w500,
-                                  color: AppTheme.textLight, letterSpacing: 0.5)),
+                          Text('ResQmove', style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.textDark, letterSpacing: 0.3)),
+                          Text('Emergency Services', style: GoogleFonts.outfit(fontSize: 10, fontWeight: FontWeight.w500, color: AppTheme.textLight, letterSpacing: 0.5)),
                         ]),
                       ]),
                       _OnlineBadge(),
@@ -1386,81 +1081,45 @@ class _HeroSection extends StatelessWidget {
                   const SizedBox(height: 42),
                   _HeroHeadline(),
                   const SizedBox(height: 18),
-                  // Location pill
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Container(width: 28, height: 2.5,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [Colors.transparent, AppTheme.crimson]),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
+                      Container(width: 28, height: 2.5, decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, AppTheme.crimson]), borderRadius: BorderRadius.circular(2))),
                       const SizedBox(width: 12),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: AppTheme.border),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12)],
-                        ),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: AppTheme.border),
+                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12)]),
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
                           const Icon(Icons.location_on_rounded, size: 14, color: AppTheme.crimson),
                           const SizedBox(width: 6),
-                          Text('Cebu City, PH',
-                              style: GoogleFonts.outfit(fontSize: 13, color: AppTheme.textMid, fontWeight: FontWeight.w600)),
+                          Text('Cebu City, PH', style: GoogleFonts.outfit(fontSize: 13, color: AppTheme.textMid, fontWeight: FontWeight.w600)),
                         ]),
                       ),
                       const SizedBox(width: 12),
-                      Container(width: 28, height: 2.5,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [AppTheme.blue, Colors.transparent]),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
+                      Container(width: 28, height: 2.5, decoration: BoxDecoration(gradient: LinearGradient(colors: [AppTheme.blue, Colors.transparent]), borderRadius: BorderRadius.circular(2))),
                     ],
                   ),
                   const SizedBox(height: 28),
                   _HomeDualActionButtons(
-                    onNonEmergency: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const NonEmergencyBookingScreen(),
-                        ),
-                      );
-                    },
+                    onNonEmergency: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NonEmergencyBookingScreen())),
                     onEmergency: () => _showRequestAmbulanceModal(context),
                   ),
                   const SizedBox(height: 20),
-                  // Driver link
                   GestureDetector(
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const DriverLoginScreen())),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverLoginScreen())),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(26),
+                        color: Colors.white, borderRadius: BorderRadius.circular(26),
                         border: Border.all(color: AppTheme.blue.withOpacity(0.25)),
-                        boxShadow: [
-                          BoxShadow(color: AppTheme.blue.withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 5)),
-                          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6),
-                        ],
+                        boxShadow: [BoxShadow(color: AppTheme.blue.withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 5)), BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6)],
                       ),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Container(
-                          width: 30, height: 30,
-                          decoration: BoxDecoration(
-                            color: AppTheme.blue.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.local_shipping_rounded, size: 16, color: AppTheme.blue),
-                        ),
+                        Container(width: 30, height: 30, decoration: BoxDecoration(color: AppTheme.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                            child: const Icon(Icons.local_shipping_rounded, size: 16, color: AppTheme.blue)),
                         const SizedBox(width: 11),
-                        Text('Are you a driver? Sign in here',
-                            style: GoogleFonts.outfit(fontSize: 13, color: AppTheme.blue, fontWeight: FontWeight.w700)),
+                        Text('Are you a driver? Sign in here', style: GoogleFonts.outfit(fontSize: 13, color: AppTheme.blue, fontWeight: FontWeight.w700)),
                         const SizedBox(width: 6),
                         const Icon(Icons.arrow_forward_ios_rounded, size: 11, color: AppTheme.blue),
                       ]),
@@ -1477,25 +1136,15 @@ class _HeroSection extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────
-//  LOGO & ONLINE BADGE
-// ─────────────────────────────────────────────
-
 class _LogoBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 46, height: 46,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFF1A35), Color(0xFFD0021B)],
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-        ),
+        gradient: const LinearGradient(colors: [Color(0xFFFF1A35), Color(0xFFD0021B)], begin: Alignment.topLeft, end: Alignment.bottomRight),
         borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(color: AppTheme.crimson.withOpacity(0.45), blurRadius: 16, offset: const Offset(0, 7)),
-          BoxShadow(color: AppTheme.crimson.withOpacity(0.15), blurRadius: 5, offset: const Offset(0, 2)),
-        ],
+        boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.45), blurRadius: 16, offset: const Offset(0, 7)), BoxShadow(color: AppTheme.crimson.withOpacity(0.15), blurRadius: 5, offset: const Offset(0, 2))],
       ),
       child: const Icon(Icons.add, color: Colors.white, size: 26),
     );
@@ -1508,8 +1157,7 @@ class _OnlineBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(26),
+        color: Colors.white, borderRadius: BorderRadius.circular(26),
         border: Border.all(color: AppTheme.success.withOpacity(0.35)),
         boxShadow: [BoxShadow(color: AppTheme.success.withOpacity(0.12), blurRadius: 12)],
       ),
@@ -1530,9 +1178,7 @@ class _PulsingDot extends StatefulWidget {
 }
 
 class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1400))
-    ..repeat(reverse: true);
+  late final AnimationController _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat(reverse: true);
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }
   @override
@@ -1543,20 +1189,12 @@ class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderState
         width: 8, height: 8,
         decoration: BoxDecoration(
           color: widget.color, shape: BoxShape.circle,
-          boxShadow: [BoxShadow(
-            color: widget.color.withOpacity(0.3 + _ctrl.value * 0.35),
-            blurRadius: 4 + _ctrl.value * 5,
-            spreadRadius: _ctrl.value * 2,
-          )],
+          boxShadow: [BoxShadow(color: widget.color.withOpacity(0.3 + _ctrl.value * 0.35), blurRadius: 4 + _ctrl.value * 5, spreadRadius: _ctrl.value * 2)],
         ),
       ),
     );
   }
 }
-
-// ─────────────────────────────────────────────
-//  HERO HEADLINE
-// ─────────────────────────────────────────────
 
 class _HeroHeadline extends StatelessWidget {
   @override
@@ -1564,36 +1202,25 @@ class _HeroHeadline extends StatelessWidget {
     return Column(
       children: [
         Text('Emergency', textAlign: TextAlign.center,
-            style: GoogleFonts.outfit(fontSize: 50, fontWeight: FontWeight.w900,
-                color: AppTheme.textDark, height: 1.0, letterSpacing: -2.5)),
+            style: GoogleFonts.outfit(fontSize: 50, fontWeight: FontWeight.w900, color: AppTheme.textDark, height: 1.0, letterSpacing: -2.5)),
         ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            colors: [Color(0xFFFF1A35), Color(0xFFD0021B)],
-            begin: Alignment.topLeft, end: Alignment.bottomRight,
-          ).createShader(bounds),
+          shaderCallback: (bounds) => const LinearGradient(colors: [Color(0xFFFF1A35), Color(0xFFD0021B)], begin: Alignment.topLeft, end: Alignment.bottomRight).createShader(bounds),
           child: Text('Ambulance', textAlign: TextAlign.center,
-              style: GoogleFonts.outfit(fontSize: 50, fontWeight: FontWeight.w900,
-                  color: Colors.white, height: 1.05, letterSpacing: -2.5)),
+              style: GoogleFonts.outfit(fontSize: 50, fontWeight: FontWeight.w900, color: Colors.white, height: 1.05, letterSpacing: -2.5)),
         ),
         Text('Service', textAlign: TextAlign.center,
-            style: GoogleFonts.outfit(fontSize: 50, fontWeight: FontWeight.w900,
-                color: AppTheme.textDark, height: 1.0, letterSpacing: -2.5)),
+            style: GoogleFonts.outfit(fontSize: 50, fontWeight: FontWeight.w900, color: AppTheme.textDark, height: 1.0, letterSpacing: -2.5)),
       ],
     );
   }
 }
-
-// ─────────────────────────────────────────────
-//  CROSS & DOT GRID PAINTERS
-// ─────────────────────────────────────────────
 
 class _CrossIcon extends StatelessWidget {
   final double size;
   final Color color;
   const _CrossIcon({required this.size, required this.color});
   @override
-  Widget build(BuildContext context) =>
-      SizedBox(width: size, height: size, child: CustomPaint(painter: _CrossPainter(color: color)));
+  Widget build(BuildContext context) => SizedBox(width: size, height: size, child: CustomPaint(painter: _CrossPainter(color: color)));
 }
 
 class _CrossPainter extends CustomPainter {
@@ -1622,11 +1249,44 @@ class _DotGridPainter extends CustomPainter {
   @override bool shouldRepaint(_DotGridPainter old) => false;
 }
 
-// ─────────────────────────────────────────────
-//  QUICK ACCESS SECTION
-// ─────────────────────────────────────────────
-
 class _QuickAccessSection extends StatelessWidget {
+  Future<void> _call911() async {
+    final uri = Uri(scheme: 'tel', path: '911');
+    if (await canLaunchUrl(uri)) await launchUrl(uri);
+  }
+
+  Future<void> _shareLocation() async {
+    var perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+    if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+      await Share.share('My location: Cebu City, PH\nPlease call emergency services immediately.');
+      return;
+    }
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 8)),
+      );
+      final mapsUrl = 'https://maps.google.com/?q=${pos.latitude},${pos.longitude}';
+      await Share.share(
+        'I need help! My location:\n$mapsUrl\n(${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)})',
+        subject: 'Emergency Location',
+      );
+    } catch (_) {
+      await Share.share('My location: Cebu City, PH\nPlease call emergency services immediately.');
+    }
+  }
+
+  void _showRequestHistory(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RequestHistorySheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -1637,11 +1297,32 @@ class _QuickAccessSection extends StatelessWidget {
           _SectionHeader(label: 'QUICK ACCESS'),
           const SizedBox(height: 16),
           Row(children: [
-            _QuickCard(icon: Icons.phone_rounded,    label: 'Call 911',       subtitle: 'Emergency', color: AppTheme.crimson,         bg: const Color(0xFFFFF0F0)),
+            _QuickCard(
+              icon: Icons.phone_rounded,
+              label: 'Call 911',
+              subtitle: 'Emergency',
+              color: AppTheme.crimson,
+              bg: const Color(0xFFFFF0F0),
+              onTap: () { HapticFeedback.heavyImpact(); _call911(); },
+            ),
             const SizedBox(width: 11),
-            _QuickCard(icon: Icons.location_on_rounded, label: 'Share Location', subtitle: 'GPS',    color: AppTheme.blue,            bg: const Color(0xFFEFF4FF)),
+            _QuickCard(
+              icon: Icons.location_on_rounded,
+              label: 'Share Location',
+              subtitle: 'GPS',
+              color: AppTheme.blue,
+              bg: const Color(0xFFEFF4FF),
+              onTap: () { HapticFeedback.mediumImpact(); _shareLocation(); },
+            ),
             const SizedBox(width: 11),
-            _QuickCard(icon: Icons.history_rounded,  label: 'Past Requests',  subtitle: 'History',   color: const Color(0xFF6B48FF),  bg: const Color(0xFFF3F0FF)),
+            _QuickCard(
+              icon: Icons.history_rounded,
+              label: 'Past Requests',
+              subtitle: 'History',
+              color: const Color(0xFF6B48FF),
+              bg: const Color(0xFFF3F0FF),
+              onTap: () { HapticFeedback.selectionClick(); _showRequestHistory(context); },
+            ),
           ]),
         ],
       ),
@@ -1655,80 +1336,67 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(children: [
-      Container(width: 4, height: 16,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: [AppTheme.crimson, AppTheme.crimsonDark],
-              begin: Alignment.topCenter, end: Alignment.bottomCenter),
-          borderRadius: BorderRadius.circular(2),
-        ),
-      ),
+      Container(width: 4, height: 16, decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [AppTheme.crimson, AppTheme.crimsonDark], begin: Alignment.topCenter, end: Alignment.bottomCenter),
+        borderRadius: BorderRadius.circular(2),
+      )),
       const SizedBox(width: 10),
-      Text(label, style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w700,
-          color: AppTheme.textLight, letterSpacing: 1.4)),
+      Text(label, style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textLight, letterSpacing: 1.4)),
     ]);
   }
 }
 
 class _QuickCard extends StatelessWidget {
   final IconData icon; final String label, subtitle; final Color color, bg;
-  const _QuickCard({required this.icon, required this.label, required this.subtitle, required this.color, required this.bg});
+  final VoidCallback? onTap;
+  const _QuickCard({required this.icon, required this.label, required this.subtitle, required this.color, required this.bg, this.onTap});
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 20, 12, 20),
-        decoration: BoxDecoration(
-          color: Colors.white, borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: color.withOpacity(0.12)),
-          boxShadow: [
-            BoxShadow(color: color.withOpacity(0.12), blurRadius: 18, offset: const Offset(0, 6)),
-            BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6),
-          ],
-        ),
-        child: Column(children: [
-          Container(width: 48, height: 48,
-            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: color.withOpacity(0.16))),
-            child: Icon(icon, color: color, size: 23),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 20, 12, 20),
+          decoration: BoxDecoration(
+            color: Colors.white, borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: color.withOpacity(0.12)),
+            boxShadow: [BoxShadow(color: color.withOpacity(0.12), blurRadius: 18, offset: const Offset(0, 6)), BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6)],
           ),
-          const SizedBox(height: 11),
-          Text(label, textAlign: TextAlign.center,
-              style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textDark, height: 1.2)),
-          const SizedBox(height: 3),
-          Text(subtitle, textAlign: TextAlign.center,
-              style: GoogleFonts.outfit(fontSize: 10, fontWeight: FontWeight.w500, color: color.withOpacity(0.75))),
-        ]),
+          child: Column(children: [
+            Container(width: 48, height: 48, decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(16), border: Border.all(color: color.withOpacity(0.16))),
+                child: Icon(icon, color: color, size: 23)),
+            const SizedBox(height: 11),
+            Text(label, textAlign: TextAlign.center, style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textDark, height: 1.2)),
+            const SizedBox(height: 3),
+            Text(subtitle, textAlign: TextAlign.center, style: GoogleFonts.outfit(fontSize: 10, fontWeight: FontWeight.w500, color: color.withOpacity(0.75))),
+          ]),
+        ),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────
-//  STATS BAR
-// ─────────────────────────────────────────────
-
 class _StatsBar extends StatelessWidget {
+  final AppStatsModel stats;
+  const _StatsBar({required this.stats});
+
   @override
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(24, 26, 24, 0),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 22),
       decoration: BoxDecoration(
-        color: Colors.white, borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: AppTheme.border),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 30, offset: const Offset(0, 10)),
-          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 3)),
-        ],
+        color: Colors.white, borderRadius: BorderRadius.circular(28), border: Border.all(color: AppTheme.border),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 30, offset: const Offset(0, 10)), BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 3))],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _StatItem(value: '--',  label: 'Avg. Response', icon: Icons.timer_outlined,          color: AppTheme.warning),
+          _StatItem(value: stats.avgResponseTime, label: 'Avg. Response', icon: Icons.timer_outlined,         color: AppTheme.warning),
           _StatDivider(),
-          _StatItem(value: '0',   label: 'Availability',  icon: Icons.airport_shuttle_rounded,  color: AppTheme.crimson),
+          _StatItem(value: stats.availableUnits.toString(),  label: 'Availability',  icon: Icons.airport_shuttle_rounded, color: AppTheme.crimson),
           _StatDivider(),
-          _StatItem(value: '0',   label: 'Lives Saved',   icon: Icons.favorite_rounded,          color: AppTheme.success),
+          _StatItem(value: stats.livesSaved.toString(),  label: 'Lives Saved',   icon: Icons.favorite_rounded,         color: AppTheme.success),
         ],
       ),
     );
@@ -1741,11 +1409,8 @@ class _StatItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(children: [
-      Container(width: 44, height: 44,
-        decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: color.withOpacity(0.18))),
-        child: Icon(icon, color: color, size: 20),
-      ),
+      Container(width: 44, height: 44, decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(15), border: Border.all(color: color.withOpacity(0.18))),
+          child: Icon(icon, color: color, size: 20)),
       const SizedBox(height: 10),
       Text(value, style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
       const SizedBox(height: 2),
@@ -1758,18 +1423,9 @@ class _StatDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: 1, height: 56,
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        colors: [Colors.transparent, AppTheme.border, Colors.transparent],
-        begin: Alignment.topCenter, end: Alignment.bottomCenter,
-      ),
-    ),
+    decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, AppTheme.border, Colors.transparent], begin: Alignment.topCenter, end: Alignment.bottomCenter)),
   );
 }
-
-// ─────────────────────────────────────────────
-//  SERVICES SECTION
-// ─────────────────────────────────────────────
 
 class _ServicesSection extends StatelessWidget {
   @override
@@ -1783,23 +1439,16 @@ class _ServicesSection extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(children: [
-                Container(width: 4, height: 22,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [AppTheme.crimson, AppTheme.crimsonDark],
-                        begin: Alignment.topCenter, end: Alignment.bottomCenter),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
+                Container(width: 4, height: 22, decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [AppTheme.crimson, AppTheme.crimsonDark], begin: Alignment.topCenter, end: Alignment.bottomCenter),
+                  borderRadius: BorderRadius.circular(2),
+                )),
                 const SizedBox(width: 12),
-                Text('Our Services',
-                    style: GoogleFonts.outfit(fontSize: 21, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+                Text('Our Services', style: GoogleFonts.outfit(fontSize: 21, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
               ]),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppTheme.blue.withOpacity(0.07), borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppTheme.blue.withOpacity(0.18)),
-                ),
+                decoration: BoxDecoration(color: AppTheme.blue.withOpacity(0.07), borderRadius: BorderRadius.circular(14), border: Border.all(color: AppTheme.blue.withOpacity(0.18))),
                 child: Row(children: [
                   Text('View all', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.blue)),
                   const SizedBox(width: 4),
@@ -1810,14 +1459,13 @@ class _ServicesSection extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
+            shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
             crossAxisCount: 2, crossAxisSpacing: 13, mainAxisSpacing: 13, childAspectRatio: 1.15,
             children: const [
-              _ServiceCard(icon: Icons.emergency_rounded,       label: 'Emergency\nResponse',  color: AppTheme.crimson, bg: Color(0xFFFFF0F0), tag: 'Priority'),
-              _ServiceCard(icon: Icons.airport_shuttle_rounded, label: 'Patient\nTransport',   color: AppTheme.blue,   bg: Color(0xFFEFF4FF), tag: 'Non-Emergency'),
-              _ServiceCard(icon: Icons.medical_services_rounded,label: 'Event Medical\nStandby',color: AppTheme.blue,  bg: Color(0xFFEFF4FF), tag: 'Planned'),
-              _ServiceCard(icon: Icons.favorite_rounded,        label: 'Basic Life\nSupport',  color: AppTheme.crimson, bg: Color(0xFFFFF0F0), tag: 'Critical'),
+              _ServiceCard(icon: Icons.emergency_rounded,       label: 'Emergency\nResponse',   color: AppTheme.crimson, bg: Color(0xFFFFF0F0), tag: 'Priority'),
+              _ServiceCard(icon: Icons.airport_shuttle_rounded, label: 'Patient\nTransport',    color: AppTheme.blue,   bg: Color(0xFFEFF4FF), tag: 'Non-Emergency'),
+              _ServiceCard(icon: Icons.medical_services_rounded,label: 'Event Medical\nStandby',color: AppTheme.blue,   bg: Color(0xFFEFF4FF), tag: 'Planned'),
+              _ServiceCard(icon: Icons.favorite_rounded,        label: 'Basic Life\nSupport',   color: AppTheme.crimson, bg: Color(0xFFFFF0F0), tag: 'Critical'),
             ],
           ),
         ],
@@ -1834,30 +1482,21 @@ class _ServiceCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white, borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: color.withOpacity(0.12)),
-        boxShadow: [
-          BoxShadow(color: color.withOpacity(0.10), blurRadius: 22, offset: const Offset(0, 8)),
-          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6, offset: const Offset(0, 2)),
-        ],
+        color: Colors.white, borderRadius: BorderRadius.circular(26), border: Border.all(color: color.withOpacity(0.12)),
+        boxShadow: [BoxShadow(color: color.withOpacity(0.10), blurRadius: 22, offset: const Offset(0, 8)), BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6, offset: const Offset(0, 2))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Container(width: 46, height: 46,
-              decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(15),
-                  border: Border.all(color: color.withOpacity(0.18))),
-              child: Icon(icon, color: color, size: 23),
-            ),
+            Container(width: 46, height: 46, decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(15), border: Border.all(color: color.withOpacity(0.18))),
+                child: Icon(icon, color: color, size: 23)),
             Flexible(child: Container(
               margin: const EdgeInsets.only(left: 6),
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-              decoration: BoxDecoration(color: color.withOpacity(0.09), borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: color.withOpacity(0.18))),
-              child: Text(tag, overflow: TextOverflow.ellipsis, maxLines: 1,
-                  style: GoogleFonts.outfit(fontSize: 9, fontWeight: FontWeight.w700, color: color, letterSpacing: 0.3)),
+              decoration: BoxDecoration(color: color.withOpacity(0.09), borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withOpacity(0.18))),
+              child: Text(tag, overflow: TextOverflow.ellipsis, maxLines: 1, style: GoogleFonts.outfit(fontSize: 9, fontWeight: FontWeight.w700, color: color, letterSpacing: 0.3)),
             )),
           ]),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1876,10 +1515,213 @@ class _ServiceCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-//  HOTLINE SECTION
+//  HOTLINE SECTION — wired to dial the number
+// ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+//  REQUEST HISTORY SHEET
+// ─────────────────────────────────────────────
+
+class _RequestHistorySheet extends StatefulWidget {
+  @override
+  State<_RequestHistorySheet> createState() => _RequestHistorySheetState();
+}
+
+class _RequestHistorySheetState extends State<_RequestHistorySheet> {
+  bool _loading = true;
+  List<AmbulanceRequestModel> _requests = [];
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final result = await RequestService.instance.getRequestHistory();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _requests = result.requests;
+      _error = result.success ? null : result.errorMessage;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      maxChildSize: 0.92,
+      minChildSize: 0.4,
+      builder: (_, ctrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 14),
+              width: 44, height: 5,
+              decoration: BoxDecoration(color: AppTheme.border, borderRadius: BorderRadius.circular(3)),
+            ),
+            Container(
+              margin: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF6B48FF), Color(0xFF4A2FBF)],
+                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [BoxShadow(color: const Color(0xFF6B48FF).withOpacity(0.35), blurRadius: 18, offset: const Offset(0, 8))],
+              ),
+              child: Row(children: [
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Colors.white.withOpacity(0.3)),
+                  ),
+                  child: const Icon(Icons.history_rounded, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Request History', style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+                  Text('Your past ambulance requests', style: GoogleFonts.outfit(fontSize: 11, color: Colors.white70)),
+                ]),
+              ]),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                      ? Center(child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Text(_error!, textAlign: TextAlign.center,
+                              style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textMid)),
+                        ))
+                      : _requests.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(32),
+                                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                                  Icon(Icons.inbox_rounded, size: 56, color: AppTheme.textLight.withOpacity(0.4)),
+                                  const SizedBox(height: 14),
+                                  Text('No requests yet', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.textDark)),
+                                  const SizedBox(height: 8),
+                                  Text('Your ambulance request history will appear here.', textAlign: TextAlign.center,
+                                      style: GoogleFonts.outfit(fontSize: 13, color: AppTheme.textMid, height: 1.5)),
+                                ]),
+                              ),
+                            )
+                          : ListView.separated(
+                              controller: ctrl,
+                              padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
+                              itemCount: _requests.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 10),
+                              itemBuilder: (_, i) => _HistoryItem(request: _requests[i]),
+                            ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryItem extends StatelessWidget {
+  final AmbulanceRequestModel request;
+  const _HistoryItem({required this.request});
+
+  Color get _statusColor {
+    switch (request.status) {
+      case RequestStatus.completed:  return AppTheme.success;
+      case RequestStatus.cancelled:  return AppTheme.textLight;
+      case RequestStatus.declined:   return AppTheme.textLight;
+      case RequestStatus.inProgress: return AppTheme.success;
+      case RequestStatus.accepted:   return AppTheme.blue;
+      case RequestStatus.pending:    return AppTheme.warning;
+    }
+  }
+
+  String get _statusLabel {
+    switch (request.status) {
+      case RequestStatus.completed:  return 'Completed';
+      case RequestStatus.cancelled:  return 'Cancelled';
+      case RequestStatus.declined:   return 'Declined';
+      case RequestStatus.inProgress: return 'In Progress';
+      case RequestStatus.accepted:   return 'Accepted';
+      case RequestStatus.pending:    return 'Pending';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final date = request.requestedAt;
+    final dateStr = date != null
+        ? '${date.day}/${date.month}/${date.year}  ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}'
+        : 'Unknown date';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _statusColor.withOpacity(0.18)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 14, offset: const Offset(0, 4))],
+      ),
+      child: Row(children: [
+        Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(
+            color: _statusColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: _statusColor.withOpacity(0.22)),
+          ),
+          child: Icon(Icons.airport_shuttle_rounded, color: _statusColor, size: 22),
+        ),
+        const SizedBox(width: 13),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(request.emergencyType.label,
+              style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.textDark)),
+          const SizedBox(height: 3),
+          Text(request.pickupLocation.address ?? dateStr,
+              style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.textLight), overflow: TextOverflow.ellipsis),
+          if (request.pickupLocation.address != null) ...[  
+            const SizedBox(height: 1),
+            Text(dateStr, style: GoogleFonts.outfit(fontSize: 10, color: AppTheme.textLight.withOpacity(0.7))),
+          ],
+        ])),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: _statusColor.withOpacity(0.09),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: _statusColor.withOpacity(0.22)),
+          ),
+          child: Text(_statusLabel, style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w700, color: _statusColor)),
+        ),
+      ]),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  HOTLINE SECTION — wired to dial the number
 // ─────────────────────────────────────────────
 
 class _HotlineSection extends StatelessWidget {
+  Future<void> _callHotline() async {
+    final uri = Uri(scheme: 'tel', path: AppConfig.hotlineNumber);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -1909,27 +1751,28 @@ class _HotlineSection extends StatelessWidget {
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('Emergency Hotline',
                   style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.textLight, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-              Text('Hotline not set',
+              Text(AppConfig.hotlineDisplay,
                   style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.textDark, letterSpacing: 0.3)),
               Row(children: [
-                Container(width: 7, height: 7,
-                    decoration: const BoxDecoration(color: AppTheme.success, shape: BoxShape.circle)),
+                Container(width: 7, height: 7, decoration: const BoxDecoration(color: AppTheme.success, shape: BoxShape.circle)),
                 const SizedBox(width: 5),
-                Text('Available 24/7',
-                    style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.success, fontWeight: FontWeight.w600)),
+                Text('Available 24/7', style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.success, fontWeight: FontWeight.w600)),
               ]),
             ])),
-            Container(
-              width: 50, height: 50,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFF1A35), Color(0xFFB71C1C)],
-                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.heavyImpact();
+                _callHotline();
+              },
+              child: Container(
+                width: 50, height: 50,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFFFF1A35), Color(0xFFB71C1C)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.5), blurRadius: 16, offset: const Offset(0, 7))],
                 ),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.5), blurRadius: 16, offset: const Offset(0, 7))],
+                child: const Icon(Icons.call_rounded, color: Colors.white, size: 24),
               ),
-              child: const Icon(Icons.call_rounded, color: Colors.white, size: 24),
             ),
           ]),
         ),

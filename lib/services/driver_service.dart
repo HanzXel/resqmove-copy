@@ -150,6 +150,34 @@ class DriverService {
     }
   }
 
+  // ── Fetch trip history ────────────────────────────────────────────────────
+
+  /// Returns all completed/cancelled trips for this driver.
+  /// Backend: GET /driver/trips?status=completed,cancelled
+  Future<RequestListResult> getTripHistory() async {
+    try {
+      if (AppConfig.useMockApi) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        return const RequestListResult._(success: true, requests: []);
+      }
+
+      final response = await _client.get(
+        '/driver/trips',
+        queryParams: {'status': 'completed,cancelled'},
+      );
+      final list = response.data?['trips'] as List<dynamic>? ?? [];
+      final trips = list
+          .whereType<Map<String, dynamic>>()
+          .map(AmbulanceRequestModel.fromJson)
+          .toList();
+      return RequestListResult._(success: true, requests: trips);
+    } on ApiException catch (e) {
+      return RequestListResult._(success: false, requests: const [], errorMessage: e.message);
+    } catch (e) {
+      return RequestListResult._(success: false, requests: const [], errorMessage: 'Failed to load trip history.');
+    }
+  }
+
   // ── Complete an active trip ────────────────────────────────────────────────
 
   Future<DriverResult> completeTrip(String requestId) async {

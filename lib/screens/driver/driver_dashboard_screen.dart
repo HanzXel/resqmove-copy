@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../models/models.dart';
 import '../../services/auth_service.dart';
 import '../../services/driver_service.dart';
+import '../../services/notification_service.dart';
 import '../../utils/driver_request_map.dart';
 import 'driver_navigation_screen.dart';
 
@@ -59,7 +60,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     setState(() {
       _stats = statsResult;
       _activeTrip = activeResult.success ? activeResult.request : null;
-      _incoming = first;
+      final newIncoming = first;
+      // Fire a push notification when a new request arrives
+      if (newIncoming != null && newIncoming.id != _incoming?.id) {
+        final addr = newIncoming.pickupLocation.address ??
+            '${newIncoming.pickupLocation.latitude.toStringAsFixed(4)}, ${newIncoming.pickupLocation.longitude.toStringAsFixed(4)}';
+        unawaited(NotificationService.instance.notifyDriverIncomingRequest(
+          newIncoming.emergencyType.label,
+          addr,
+        ));
+      }
+      _incoming = newIncoming;
     });
   }
 

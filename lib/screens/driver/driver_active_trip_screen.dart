@@ -8,6 +8,8 @@ import '../../config/app_config.dart';
 import '../../theme/app_theme.dart';
 import '../../services/driver_service.dart';
 import '../../services/tracking_service.dart';
+import '../../services/background_location_service.dart';
+import '../../services/notification_service.dart';
 import 'driver_hospital_screen.dart';
 
 class DriverActiveTripScreen extends StatefulWidget {
@@ -34,10 +36,31 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   @override
   void initState() {
     super.initState();
-    if (!AppConfig.useMockApi) {
-      _locationTimer = Timer.periodic(const Duration(seconds: 12), (_) => _pushGps());
-      unawaited(_pushGps());
+    _startLocationTracking();
+  }
+
+  Future<void> _startLocationTracking() async {
+    final id = _requestId;
+    if (AppConfig.useMockApi) return;
+
+    // Initialize background service with a location-push callback
+    await BackgroundLocationService.instance.init(
+      onLocation: (data) {
+        TrackingService.instance.pushDriverLocation(
+          latitude: (data['latitude'] as num).toDouble(),
+          longitude: (data['longitude'] as num).toDouble(),
+          activeRequestId: data['request_id']?.toString(),
+        );
+      },
+    );
+
+    if (id != null && id.isNotEmpty) {
+      await BackgroundLocationService.instance.start(requestId: id);
     }
+
+    // Foreground fallback: also push every 12 s when app is open
+    _locationTimer = Timer.periodic(const Duration(seconds: 12), (_) => _pushGps());
+    unawaited(_pushGps());
   }
 
   Future<void> _pushGps() async {
@@ -68,6 +91,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   @override
   void dispose() {
     _locationTimer?.cancel();
+    if (!AppConfig.useMockApi) {
+      unawaited(BackgroundLocationService.instance.stop());
+    }
     super.dispose();
   }
 
@@ -75,12 +101,17 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     HapticFeedback.heavyImpact();
     if (_currentStatus == 1) {
       if (!mounted) return;
+      // Notify patient that ambulance is picking up
+      unawaited(NotificationService.instance.notifyStatusUpdate('Ambulance has arrived — patient being picked up.'));
       Navigator.push(context,
           MaterialPageRoute(builder: (_) => DriverHospitalScreen(request: widget.request)));
       return;
     }
     if (_currentStatus < _statusSteps.length - 1) {
       setState(() => _currentStatus++);
+      // Fire status notification
+      final label = _statusSteps[_currentStatus]['label'] as String;
+      unawaited(NotificationService.instance.notifyStatusUpdate(label));
       return;
     }
     // Final step: complete trip on server

@@ -20,17 +20,49 @@ dependencies:
   url_launcher: ^6.3.1
   connectivity_plus: ^6.1.4
   socket_io_client: ^3.0.2
+  flutter_local_notifications: ^18.0.1
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
+  flutter_background_service: ^5.0.5
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_native_splash: ^2.4.4
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/
 
+# ── Launcher icon ────────────────────────────────────────────────────────────
+# After adding your icon PNG at assets/images/app_icon.png, run:
+#   dart run flutter_launcher_icons
+#
+# Your icon should be at least 1024x1024 px, PNG format, no transparency
+# (Android adaptive icons handle the shape masking).
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/app_icon.png"
+  adaptive_icon_background: "#0D1B2A"
+  adaptive_icon_foreground: "assets/images/app_icon_foreground.png"
+  min_sdk_android: 21
+
+# ── Native splash ────────────────────────────────────────────────────────────
+# After adding your splash logo at assets/images/splash_logo.png, run:
+#   dart run flutter_native_splash:create
+#
+# The logo will be centered on the dark background.
 flutter_native_splash:
   color: "#0D1B2A"
+  image: assets/images/splash_logo.png
+  color_dark: "#0D1B2A"
+  image_dark: assets/images/splash_logo.png
   android_12:
     color: "#0D1B2A"
+    image: assets/images/splash_logo.png
+    icon_background_color: "#0D1B2A"

@@ -12,12 +12,14 @@ import 'screens/patient_login_screen.dart';
 import 'widgets/connectivity_gate.dart';
 import 'services/api_client.dart';
 import 'services/app_messenger.dart';
+import 'services/notification_service.dart';
 import 'services/registration_service.dart';
 import 'services/session_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ApiClient.instance.restoreSession();
+  await NotificationService.instance.init();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

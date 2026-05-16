@@ -5,8 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/api_client.dart';
 import '../services/request_service.dart';
 import '../services/tracking_service.dart';
 
@@ -24,6 +27,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   AmbulanceRequestModel? _request;
   TrackingSnapshot? _snapshot;
   StreamSubscription<TrackingSnapshot>? _sub;
+  String? _driverContactNumber;
 
   LatLng get _pickup {
     final r = _request;
@@ -147,10 +151,42 @@ class _TrackingScreenState extends State<TrackingScreen> {
       _request = res.request;
     });
 
+    // Fetch driver contact number if a driver has been assigned
+    final driverId = res.request!.assignedDriverId;
+    if (driverId != null && driverId.isNotEmpty) {
+      unawaited(_fetchDriverContact(driverId));
+    }
+
     TrackingService.instance.startTracking(id);
     _sub = TrackingService.instance.trackingStream.listen((snap) {
-      if (mounted) setState(() => _snapshot = snap);
+      if (mounted) {
+        setState(() => _snapshot = snap);
+        // Fetch driver contact once accepted (driver assigned mid-trip)
+        final newDriverId = _request?.assignedDriverId;
+        if (_driverContactNumber == null && newDriverId != null && newDriverId.isNotEmpty) {
+          unawaited(_fetchDriverContact(newDriverId));
+        }
+      }
     });
+  }
+
+  Future<void> _fetchDriverContact(String driverId) async {
+    try {
+      final response = await ApiClient.instance.get('/driver/$driverId/contact');
+      final contact = response.data?['contact_number']?.toString();
+      if (contact != null && contact.isNotEmpty && mounted) {
+        setState(() => _driverContactNumber = contact);
+      }
+    } catch (_) {
+      // Contact fetch failed — Call Driver button will fall back to hotline
+    }
+  }
+
+  Future<void> _callDriver() async {
+    HapticFeedback.heavyImpact();
+    final number = _driverContactNumber ?? AppConfig.hotlineNumber;
+    final uri = Uri(scheme: 'tel', path: number);
+    if (await canLaunchUrl(uri)) await launchUrl(uri);
   }
 
   @override
@@ -345,9 +381,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                           ),
                           const Spacer(),
                           GestureDetector(
-                            onTap: () {
-                              HapticFeedback.mediumImpact();
-                            },
+                            onTap: _callDriver,
                             child: Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 11),
@@ -374,11 +408,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
                                   const Icon(Icons.phone_rounded,
                                       color: Colors.white, size: 17),
                                   const SizedBox(width: 7),
-                                  Text('Call Driver',
-                                      style: GoogleFonts.outfit(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.white)),
+                                  Text(
+                                    _driverContactNumber != null ? 'Call Driver' : 'Call Hotline',
+                                    style: GoogleFonts.outfit(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white)),
                                 ],
                               ),
                             ),
