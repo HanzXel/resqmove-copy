@@ -9,7 +9,6 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
-import '../widgets/input_field.dart';
 import '../services/request_service.dart';
 import '../services/registration_service.dart';
 
@@ -35,14 +34,30 @@ class _BookingScreenState extends State<BookingScreen>
     value: 1.0,
   );
 
-  final _nameCtrl = TextEditingController();
-  final _contactCtrl = TextEditingController();
+  final _nameCtrl     = TextEditingController();
+  final _contactCtrl  = TextEditingController();
   final _locationCtrl = TextEditingController();
-  final _hospitalCtrl = TextEditingController();
+
+  // [FIX] Hospital is now a dropdown — no controller needed
+  String? _selectedHospital;
 
   String? _nameError;
   String? _contactError;
   String? _locationError;
+
+  // [FIX] Hospital list for the dropdown
+  static const List<String> _hospitals = [
+    'Chong Hua Hospital',
+    'Cebu Doctors\' University Hospital',
+    'Vicente Sotto Memorial Medical Center',
+    'Perpetual Succour Hospital',
+    'Cebu Velez General Hospital',
+    'St. Vincent General Hospital',
+    'UC Med - University of Cebu Medical Center',
+    'Brokenshire Memorial Hospital',
+    'Cebu City Medical Center',
+    'Other',
+  ];
 
   final List<Map<String, dynamic>> _emergencyTypes = [
     {'label': 'Cardiac Arrest', 'apiLabel': 'Cardiac Arrest', 'icon': Icons.favorite_border_rounded, 'color': AppTheme.crimson},
@@ -78,7 +93,6 @@ class _BookingScreenState extends State<BookingScreen>
     _nameCtrl.dispose();
     _contactCtrl.dispose();
     _locationCtrl.dispose();
-    _hospitalCtrl.dispose();
     _submitAnim.dispose();
     super.dispose();
   }
@@ -117,7 +131,6 @@ class _BookingScreenState extends State<BookingScreen>
         }
       } catch (_) {}
 
-      // Use registered address as human-readable label if GPS-only
       if (address.isEmpty) {
         final reg = await RegistrationService.instance.loadRegistration();
         if (reg != null && reg.address.isNotEmpty) address = reg.address;
@@ -125,13 +138,13 @@ class _BookingScreenState extends State<BookingScreen>
     }
 
     final emergencyLabel = _emergencyTypes[_selectedEmergency]['apiLabel'] as String;
-    final conditionNote = _conditionLevels[_selectedCondition]['label'] as String;
-    final hospital = _hospitalCtrl.text.trim();
+    final conditionNote  = _conditionLevels[_selectedCondition]['label'] as String;
     final notes = [
       'Patient: ${_nameCtrl.text.trim()}',
       'Contact: ${_contactCtrl.text.trim()}',
       'Condition: $conditionNote',
-      if (hospital.isNotEmpty) 'Preferred hospital: $hospital',
+      if (_selectedHospital != null && _selectedHospital!.isNotEmpty)
+        'Preferred hospital: $_selectedHospital',
     ].join(' | ');
 
     final result = await RequestService.instance.submitRequest(
@@ -252,13 +265,10 @@ class _BookingScreenState extends State<BookingScreen>
                   const SizedBox(height: 14),
                   _buildLocationField(),
                   const SizedBox(height: 28),
+                  // [FIX] Hospital field is now a labeled dropdown
                   _buildSectionHeader('Preferred Hospital', Icons.local_hospital_outlined, AppTheme.textLight, optional: true),
                   const SizedBox(height: 14),
-                  InputField(
-                    hint: 'Hospital name (optional)',
-                    icon: Icons.local_hospital_outlined,
-                    controller: _hospitalCtrl,
-                  ),
+                  _buildHospitalDropdown(),
                   const SizedBox(height: 36),
                   _buildSubmitButton(),
                   const SizedBox(height: 14),
@@ -387,14 +397,25 @@ class _BookingScreenState extends State<BookingScreen>
   Widget _buildPatientFields() {
     return Column(
       children: [
-        _FieldRow(hint: 'Full name', icon: Icons.person_outline_rounded,
-            controller: _nameCtrl, errorText: _nameError,
-            onChanged: (_) => setState(() => _nameError = null)),
-        _FieldRow(hint: 'Contact number', icon: Icons.phone_outlined,
-            controller: _contactCtrl, keyboardType: TextInputType.phone,
-            errorText: _contactError,
-            onChanged: (_) => setState(() => _contactError = null),
-            isLast: true),
+        // [FIX] Each field now has a visible label
+        _LabeledFieldRow(
+          label: 'Full Name',
+          hint: 'Enter full name',
+          icon: Icons.person_outline_rounded,
+          controller: _nameCtrl,
+          errorText: _nameError,
+          onChanged: (_) => setState(() => _nameError = null),
+        ),
+        const SizedBox(height: 10),
+        _LabeledFieldRow(
+          label: 'Contact Number',
+          hint: 'Enter contact number',
+          icon: Icons.phone_outlined,
+          controller: _contactCtrl,
+          keyboardType: TextInputType.phone,
+          errorText: _contactError,
+          onChanged: (_) => setState(() => _contactError = null),
+        ),
       ],
     );
   }
@@ -483,14 +504,15 @@ class _BookingScreenState extends State<BookingScreen>
   Widget _buildLocationField() {
     return Column(
       children: [
-        _FieldRow(
-          hint: 'Your current location',
+        // [FIX] Location field also has a label
+        _LabeledFieldRow(
+          label: 'Your Location',
+          hint: 'Enter your current address',
           icon: Icons.location_on_outlined,
           controller: _locationCtrl,
           enabled: !_useGps,
           errorText: _locationError,
           onChanged: (_) => setState(() => _locationError = null),
-          isLast: true,
         ),
         const SizedBox(height: 10),
         GestureDetector(
@@ -527,6 +549,55 @@ class _BookingScreenState extends State<BookingScreen>
                   activeTrackColor: AppTheme.blue.withOpacity(0.25),
                 ),
               ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // [FIX] Hospital is now a dropdown with a label — consistent with the rest of the form
+  Widget _buildHospitalDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Label row
+        Row(children: [
+          Container(width: 34, height: 34,
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceLight,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: const Icon(Icons.local_hospital_outlined, color: AppTheme.textLight, size: 17)),
+          const SizedBox(width: 10),
+          Text('Preferred Hospital',
+              style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.textLight)),
+        ]),
+        const SizedBox(height: 10),
+        // Dropdown container — same grey pill as text fields
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF2F3F5),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _selectedHospital != null ? AppTheme.blue.withOpacity(0.4) : Colors.transparent,
+            ),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedHospital,
+              isExpanded: true,
+              hint: Text('Select hospital (optional)',
+                  style: GoogleFonts.outfit(fontSize: 15, color: const Color(0xFFADB5BD), fontWeight: FontWeight.w400)),
+              icon: const Icon(Icons.expand_more_rounded, color: AppTheme.textLight),
+              style: GoogleFonts.outfit(fontSize: 15, color: AppTheme.textDark, fontWeight: FontWeight.w500),
+              dropdownColor: Colors.white,
+              items: _hospitals.map((h) =>
+                  DropdownMenuItem(value: h, child: Text(h, overflow: TextOverflow.ellipsis))).toList(),
+              onChanged: (v) => setState(() => _selectedHospital = v),
             ),
           ),
         ),
@@ -588,89 +659,101 @@ class _BookingScreenState extends State<BookingScreen>
 }
 
 // ─────────────────────────────────────────────
-//  SHARED FIELD WIDGET
+//  [FIX] LABELED FIELD WIDGET
+//  Previously _FieldRow had no visible label — now each field shows a label
+//  above it, consistent with the driver login screen and profile screen style.
 // ─────────────────────────────────────────────
-class _FieldRow extends StatelessWidget {
-final String hint;
-final IconData icon;
-final TextEditingController controller;
-final TextInputType? keyboardType;
-final String? errorText;
-final ValueChanged<String>? onChanged;
-final bool enabled;
-final bool isLast;
+class _LabeledFieldRow extends StatelessWidget {
+  final String label;
+  final String hint;
+  final IconData icon;
+  final TextEditingController controller;
+  final TextInputType? keyboardType;
+  final String? errorText;
+  final ValueChanged<String>? onChanged;
+  final bool enabled;
 
-const _FieldRow({
-required this.hint,
-required this.icon,
-required this.controller,
-this.keyboardType,
-this.errorText,
-this.onChanged,
-this.enabled = true,
-this.isLast = false,
-});
+  const _LabeledFieldRow({
+    required this.label,
+    required this.hint,
+    required this.icon,
+    required this.controller,
+    this.keyboardType,
+    this.errorText,
+    this.onChanged,
+    this.enabled = true,
+  });
 
-@override
-Widget build(BuildContext context) {
-return Padding(
-padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Container(
-decoration: BoxDecoration(
-color: enabled
-  ? const Color(0xFFF2F3F5)
-  : const Color(0xFFEBECEE),
-borderRadius: BorderRadius.circular(14),
-border: Border.all(
-color: errorText != null
-    ? AppTheme.crimson.withOpacity(0.5)
-    : Colors.transparent,
-),
-),
-child: TextField(
-controller: controller,
-keyboardType: keyboardType,
-enabled: enabled,
-onChanged: onChanged,
-style: GoogleFonts.outfit(
-fontSize: 15,
-color: AppTheme.textDark,
-fontWeight: FontWeight.w500,
-),
-decoration: InputDecoration(
-hintText: hint,
-hintStyle: GoogleFonts.outfit(
-fontSize: 15,
-  color: const Color(0xFFADB5BD),
-    fontWeight: FontWeight.w400,
-    ),
-      border: InputBorder.none,
-      contentPadding: const EdgeInsets.symmetric(
-        vertical: 18, horizontal: 18),
-  ),
-),
-),
-if (errorText != null) ...[  
-const SizedBox(height: 5),
-  Padding(
-    padding: const EdgeInsets.only(left: 4),
-      child: Row(children: [
-          Icon(Icons.info_outline_rounded,
-                size: 12, color: AppTheme.crimson),
-              const SizedBox(width: 4),
-                Text(errorText!,
-                    style: GoogleFonts.outfit(
-                        fontSize: 11,
-                        color: AppTheme.crimson,
-                        fontWeight: FontWeight.w500)),
-              ]),
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Label row with icon
+        Row(children: [
+          Container(width: 34, height: 34,
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceLight,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.border),
             ),
-          ],
+            child: Icon(icon, color: AppTheme.textLight, size: 17)),
+          const SizedBox(width: 10),
+          Text(label,
+              style: GoogleFonts.outfit(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textLight,
+              )),
+        ]),
+        const SizedBox(height: 8),
+        // Input box
+        Container(
+          decoration: BoxDecoration(
+            color: enabled ? const Color(0xFFF2F3F5) : const Color(0xFFEBECEE),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: errorText != null ? AppTheme.crimson.withOpacity(0.5) : Colors.transparent,
+            ),
+          ),
+          child: TextField(
+            controller: controller,
+            keyboardType: keyboardType,
+            enabled: enabled,
+            onChanged: onChanged,
+            style: GoogleFonts.outfit(
+              fontSize: 15,
+              color: AppTheme.textDark,
+              fontWeight: FontWeight.w500,
+            ),
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: GoogleFonts.outfit(
+                fontSize: 15,
+                color: const Color(0xFFADB5BD),
+                fontWeight: FontWeight.w400,
+              ),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
+            ),
+          ),
+        ),
+        if (errorText != null) ...[
+          const SizedBox(height: 5),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Row(children: [
+              Icon(Icons.info_outline_rounded, size: 12, color: AppTheme.crimson),
+              const SizedBox(width: 4),
+              Text(errorText!,
+                  style: GoogleFonts.outfit(
+                      fontSize: 11,
+                      color: AppTheme.crimson,
+                      fontWeight: FontWeight.w500)),
+            ]),
+          ),
         ],
-      ),
+      ],
     );
   }
 }

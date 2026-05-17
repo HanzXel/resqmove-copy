@@ -158,8 +158,26 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     if (_currentStatus == 1) {
       if (!mounted) return;
       unawaited(NotificationService.instance.notifyStatusUpdate('Ambulance has arrived — patient being picked up.'));
-      Navigator.push(context,
-          MaterialPageRoute(builder: (_) => DriverHospitalScreen(request: widget.request)));
+      // [FIX] Await the push so we can detect when DriverHospitalScreen
+      // sends back result=true (the driver confirmed the hospital and tapped Done).
+      // When that happens: advance status to step 2, call completeTrip on the
+      // backend, then pop back to the dashboard. The driver doesn't need to
+      // manually tap through steps 2 and 3 — confirming the hospital IS the
+      // completion of the trip.
+      final hospitalDone = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => DriverHospitalScreen(request: widget.request)),
+      );
+      if (hospitalDone == true && mounted) {
+        // Mark the trip complete on the server
+        final id = _requestId;
+        if (id != null && id.isNotEmpty) {
+          await DriverService.instance.completeTrip(id);
+        }
+        if (!mounted) return;
+        unawaited(NotificationService.instance.notifyStatusUpdate('Trip completed — patient delivered to hospital.'));
+        Navigator.pop(context); // pop DriverActiveTripScreen → back to DriverShell
+      }
       return;
     }
     if (_currentStatus < _statusSteps.length - 1) {
@@ -186,7 +204,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       }
     }
     if (!mounted) return;
-    Navigator.popUntil(context, (route) => route.isFirst);
+    // [BUG FIX] popUntil(isFirst) was routing back to the patient MainShell.
+    // The correct behavior: pop once to return to DriverShell (dashboard).
+    // The navigation stack at this point is:
+    //   DriverShell → DriverActiveTripScreen (DriverNavScreen was replaced via pushReplacement)
+    // A single pop brings us back to the DriverShell dashboard cleanly.
+    Navigator.pop(context);
   }
 
   void _cancelTrip() {
@@ -195,8 +218,9 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => _CancelSheet(
         onConfirm: (reason) {
-          Navigator.pop(ctx);
-          Navigator.popUntil(context, (route) => route.isFirst);
+          Navigator.pop(ctx); // close the bottom sheet
+          // [BUG FIX] Same fix — pop once back to DriverShell
+          Navigator.pop(context);
         },
       ),
     );

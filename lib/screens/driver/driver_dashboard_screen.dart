@@ -160,7 +160,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
 
     final payload = driverRequestMapForUi(_incoming!);
-    setState(() => _incoming = null);
+    // Clear both incoming and activeTrip immediately so the dashboard doesn't
+    // show stale cards while the driver is on the navigation/trip screens.
+    setState(() {
+      _incoming = null;
+      _activeTrip = null;
+    });
 
     await Navigator.push(
       context,
@@ -168,7 +173,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         builder: (_) => DriverNavigationScreen(request: payload),
       ),
     );
-    if (mounted) unawaited(_refreshAll());
+
+    // [FIX] Always do a full refresh when returning from any trip screen.
+    // This resets stats, clears the active-trip banner, and unblocks the
+    // driver from accepting the next incoming request without errors.
+    if (mounted) {
+      setState(() {
+        _incoming = null;
+        _activeTrip = null;
+      });
+      unawaited(_refreshAll());
+    }
   }
 
   Future<void> _declineRequest() async {
@@ -239,7 +254,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   DriverNavigationScreen(request: driverRequestMapForUi(r)),
             ),
           );
-          if (mounted) unawaited(_refreshAll());
+          // [FIX] Clear stale active-trip banner and refresh fully on return
+          if (mounted) {
+            setState(() {
+              _incoming = null;
+              _activeTrip = null;
+            });
+            unawaited(_refreshAll());
+          }
         },
         child: Container(
           padding: const EdgeInsets.all(18),

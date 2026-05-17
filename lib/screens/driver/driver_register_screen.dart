@@ -24,7 +24,8 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final _passwordCtrl        = TextEditingController();
   final _confirmPasswordCtrl = TextEditingController();
 
-  String? _selectedUnit;
+  // Unit ID is free-text — drivers type their own unit ID (e.g. RESQ-101)
+  final _unitIdCtrl = TextEditingController();
   String? _selectedExperience;
   bool _obscurePassword        = true;
   bool _obscureConfirmPassword = true;
@@ -35,16 +36,6 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   int _currentStep = 0; // 0 = Personal, 1 = Assignment, 2 = Account
 
   // ── Data ──────────────────────────────────────────────────────────────────
-  static const List<String> _units = [
-    'RESQ-101 · Chong Hua Hospital',
-    'RESQ-102 · Cebu Doctors\' University Hospital',
-    'RESQ-103 · Vicente Sotto Memorial Medical Center',
-    'RESQ-104 · Perpetual Succour Hospital',
-    'RESQ-105 · Cebu Velez General Hospital',
-    'RESQ-106 · UC Med',
-    'RESQ-107 · Cebu City Medical Center',
-  ];
-
   static const List<String> _experienceLevels = [
     'Less than 1 year',
     '1 – 3 years',
@@ -64,6 +55,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmPasswordCtrl.dispose();
+    _unitIdCtrl.dispose();
     super.dispose();
   }
 
@@ -75,7 +67,6 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
       if (_licenseCtrl.text.trim().isEmpty)   return 'Please enter your driver\'s license number.';
       if (_phoneCtrl.text.trim().isEmpty)     return 'Please enter your phone number.';
     } else if (_currentStep == 1) {
-      if (_selectedUnit == null)       return 'Please select an ambulance unit.';
       if (_selectedExperience == null) return 'Please select your experience level.';
     } else if (_currentStep == 2) {
       if (_usernameCtrl.text.trim().isEmpty)  return 'Please choose a username.';
@@ -108,18 +99,9 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   }
 
   Map<String, String?> _parsedUnit() {
-    final u = _selectedUnit;
-    if (u == null || u.isEmpty) return {};
-    final parts = u
-        .split(RegExp(r'\s*·\s*'))
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    if (parts.isEmpty) return {};
-    return {
-      'unit_id': parts.first,
-      if (parts.length > 1) 'hospital': parts.sublist(1).join(' · '),
-    };
+    final unitId = _unitIdCtrl.text.trim();
+    if (unitId.isEmpty) return {};
+    return {'unit_id': unitId};
   }
 
   Future<void> _submit() async {
@@ -248,11 +230,9 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
         addressCtrl: _addressCtrl,
       );
       case 1: return _StepAssignment(
-        selectedUnit: _selectedUnit,
+        unitIdCtrl: _unitIdCtrl,
         selectedExperience: _selectedExperience,
-        units: _units,
         experienceLevels: _experienceLevels,
-        onUnitChanged: (v) => setState(() => _selectedUnit = v),
         onExperienceChanged: (v) => setState(() => _selectedExperience = v),
       );
       case 2: return _StepAccount(
@@ -390,14 +370,16 @@ class _StepPersonal extends StatelessWidget {
 }
 
 class _StepAssignment extends StatelessWidget {
-  final String? selectedUnit, selectedExperience;
-  final List<String> units, experienceLevels;
-  final ValueChanged<String?> onUnitChanged, onExperienceChanged;
+  final TextEditingController unitIdCtrl;
+  final String? selectedExperience;
+  final List<String> experienceLevels;
+  final ValueChanged<String?> onExperienceChanged;
 
   const _StepAssignment({
-    required this.selectedUnit,    required this.selectedExperience,
-    required this.units,           required this.experienceLevels,
-    required this.onUnitChanged,   required this.onExperienceChanged,
+    required this.unitIdCtrl,
+    required this.selectedExperience,
+    required this.experienceLevels,
+    required this.onExperienceChanged,
   });
 
   @override
@@ -411,14 +393,16 @@ class _StepAssignment extends StatelessWidget {
           subtitle: 'Your ambulance unit and experience',
         ),
         const SizedBox(height: 18),
-        _DropdownCard(
-          icon: Icons.airport_shuttle_rounded,
-          label: 'Ambulance Unit',
-          hint: 'Select your assigned unit',
-          value: selectedUnit,
-          items: units,
-          onChanged: onUnitChanged,
-        ),
+        // Unit ID — free-text field
+        _FieldCard(children: [
+          _RegField(
+            label: 'Ambulance Unit ID',
+            hint: 'e.g. RESQ-101 (optional)',
+            icon: Icons.airport_shuttle_rounded,
+            controller: unitIdCtrl,
+            isLast: true,
+          ),
+        ]),
         const SizedBox(height: 14),
         _DropdownCard(
           icon: Icons.timer_outlined,
@@ -427,37 +411,6 @@ class _StepAssignment extends StatelessWidget {
           value: selectedExperience,
           items: experienceLevels,
           onChanged: onExperienceChanged,
-        ),
-        const SizedBox(height: 20),
-        // [FIX 3] Updated info box — verified automatically for demo
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppTheme.success.withOpacity(0.08), AppTheme.success.withOpacity(0.02)],
-            ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTheme.success.withOpacity(0.25)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 42, height: 42,
-                decoration: BoxDecoration(
-                  color: AppTheme.success.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                child: const Icon(Icons.verified_rounded, color: AppTheme.success, size: 21),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  'For demo purposes, your account will be automatically verified and activated upon registration.',
-                  style: GoogleFonts.outfit(fontSize: 12.5, color: AppTheme.textMid, height: 1.5),
-                ),
-              ),
-            ],
-          ),
         ),
       ],
     );

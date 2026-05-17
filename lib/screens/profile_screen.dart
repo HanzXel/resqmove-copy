@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 import '../services/profile_service.dart';
 import '../services/auth_service.dart';
@@ -30,6 +32,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   File? _profileImage;
   final ImagePicker _picker = ImagePicker();
 
+  // SharedPreferences key for persisting profile picture path
+  static const String _profileImageKey = 'resqmove_profile_image_path';
+
   static const List<String> _hospitals = [
     'Chong Hua Hospital',
     'Cebu Doctors\' University Hospital',
@@ -47,6 +52,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadProfile();
+    _loadSavedProfileImage();
   }
 
   @override
@@ -57,6 +63,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _ecNameCtrl.dispose();
     _ecNumberCtrl.dispose();
     super.dispose();
+  }
+
+  // ── [FIX] Copy image to permanent app-documents directory ─────────────────
+  // image_picker returns a temp/cache path that Android can delete any time.
+  // We copy it to getApplicationDocumentsDirectory() so it survives restarts.
+
+  Future<String?> _copyImageToPermanentStorage(String tempPath) async {
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final fileName = 'profile_picture_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final permanentFile = File('${docsDir.path}/$fileName');
+
+      // Delete old permanent file if it exists (cleanup old copies)
+      final prefs = await SharedPreferences.getInstance();
+      final oldPath = prefs.getString(_profileImageKey);
+      if (oldPath != null && oldPath.isNotEmpty && oldPath != tempPath) {
+        try { await File(oldPath).delete(); } catch (_) {}
+      }
+
+      await File(tempPath).copy(permanentFile.path);
+      return permanentFile.path;
+    } catch (_) {
+      return tempPath; // fallback to original path if copy fails
+    }
+  }
+
+  // ── Load profile picture from SharedPreferences ────────────────────────────
+
+  Future<void> _loadSavedProfileImage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedPath = prefs.getString(_profileImageKey);
+      if (savedPath != null && savedPath.isNotEmpty) {
+        final file = File(savedPath);
+        if (await file.exists()) {
+          if (mounted) setState(() => _profileImage = file);
+        } else {
+          // File was deleted/moved, clear the stale path
+          await prefs.remove(_profileImageKey);
+        }
+      }
+    } catch (_) {}
+  }
+
+  // ── Save profile picture path to SharedPreferences ─────────────────────────
+
+  Future<void> _saveProfileImagePath(String? path) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (path != null && path.isNotEmpty) {
+        await prefs.setString(_profileImageKey, path);
+      } else {
+        await prefs.remove(_profileImageKey);
+      }
+    } catch (_) {}
   }
 
   // ── Profile picture picker ─────────────────────────────────────────────────
@@ -93,7 +154,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () async {
                   Navigator.pop(context);
                   final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
-                  if (picked != null && mounted) setState(() => _profileImage = File(picked.path));
+                  if (picked != null && mounted) {
+                    // [FIX] Copy to permanent storage so it survives app restarts
+                    final permanentPath = await _copyImageToPermanentStorage(picked.path);
+                    if (permanentPath != null) {
+                      await _saveProfileImagePath(permanentPath);
+                      if (mounted) setState(() => _profileImage = File(permanentPath));
+                    }
+                  }
                 },
               ),
               ListTile(
@@ -106,7 +174,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () async {
                   Navigator.pop(context);
                   final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-                  if (picked != null && mounted) setState(() => _profileImage = File(picked.path));
+                  if (picked != null && mounted) {
+                    // [FIX] Copy to permanent storage so it survives app restarts
+                    final permanentPath = await _copyImageToPermanentStorage(picked.path);
+                    if (permanentPath != null) {
+                      await _saveProfileImagePath(permanentPath);
+                      if (mounted) setState(() => _profileImage = File(permanentPath));
+                    }
+                  }
                 },
               ),
               if (_profileImage != null)
@@ -117,9 +192,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: const Icon(Icons.delete_rounded, color: Colors.red),
                   ),
                   title: Text('Remove photo', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15, color: Colors.red)),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.pop(context);
+                    // Delete the permanent file
+                    try { await _profileImage?.delete(); } catch (_) {}
                     setState(() => _profileImage = null);
+                    await _saveProfileImagePath(null);
                   },
                 ),
               const SizedBox(height: 20),
@@ -142,7 +220,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (result.success && result.data != null) {
       final user = result.data!;
-      // If the service returned non-empty data, use it
       if (user.fullName.isNotEmpty || user.contactNumber.isNotEmpty) {
         _fullNameCtrl.text   = user.fullName;
         _contactCtrl.text    = user.contactNumber;
@@ -157,7 +234,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     }
 
-    // [FIX 2] Fallback: read directly from local SharedPreferences registration data
+    // Fallback: read directly from local SharedPreferences registration data
     final reg = await RegistrationService.instance.loadRegistration();
     if (!mounted) return;
     if (reg != null && !reg.isEmpty) {
@@ -175,6 +252,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _saveProfile() async {
     HapticFeedback.mediumImpact();
     setState(() { _isSaving = true; _errorMsg = null; });
+
+    // Profile image is already saved to permanent storage when picked —
+    // no extra action needed here; just confirm path is persisted.
+    if (_profileImage != null) {
+      await _saveProfileImagePath(_profileImage!.path);
+    }
 
     final user = UserModel(
       id: AuthService.instance.currentUser?.id,
@@ -555,36 +638,88 @@ class _HospitalDropdownCard extends StatelessWidget {
   }
 }
 
+// _ProfileField — unified style, identical to _LabeledFieldRow in booking_screen.dart
+// Same icon size, font sizes, content padding, and grey-pill container so all
+// input fields across the app look and feel the same.
 class _ProfileField extends StatelessWidget {
-  final String label, hint; final IconData icon;
+  final String label, hint;
+  final IconData icon;
   final TextEditingController controller;
-  final TextInputType keyboard; final ValueChanged<String>? onChanged; final bool isLast;
-  const _ProfileField({required this.label, required this.hint, required this.icon,
-      required this.controller, this.keyboard = TextInputType.text, this.onChanged, this.isLast = false});
+  final TextInputType keyboard;
+  final ValueChanged<String>? onChanged;
+  final bool isLast;
+
+  const _ProfileField({
+    required this.label,
+    required this.hint,
+    required this.icon,
+    required this.controller,
+    this.keyboard = TextInputType.text,
+    this.onChanged,
+    this.isLast = false,
+  });
+
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(18, 20, 18, isLast ? 20 : 10),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(width: 42, height: 42,
-            decoration: BoxDecoration(color: AppTheme.surfaceLight, borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.border)),
-            child: Icon(icon, color: AppTheme.textLight, size: 19)),
-          const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: GoogleFonts.outfit(fontSize: 11.5, fontWeight: FontWeight.w600,
-                color: AppTheme.textLight, letterSpacing: 0.3)),
-            const SizedBox(height: 6),
-            TextField(controller: controller, keyboardType: keyboard, onChanged: onChanged,
-              style: GoogleFonts.outfit(fontSize: 16, color: AppTheme.textDark, fontWeight: FontWeight.w600),
-              decoration: InputDecoration(hintText: hint,
-                hintStyle: GoogleFonts.outfit(fontSize: 16, color: AppTheme.textLight),
-                border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero)),
-          ])),
-        ]),
-        if (!isLast) const SizedBox(height: 10),
-      ]),
+      padding: EdgeInsets.fromLTRB(18, 16, 18, isLast ? 16 : 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Label row — matches _LabeledFieldRow exactly
+          Row(children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceLight,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Icon(icon, color: AppTheme.textLight, size: 17),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: GoogleFonts.outfit(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textLight,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          // Input box — same grey pill, same padding as booking screen fields
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F3F5),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.transparent),
+            ),
+            child: TextField(
+              controller: controller,
+              keyboardType: keyboard,
+              onChanged: onChanged,
+              style: GoogleFonts.outfit(
+                fontSize: 15,
+                color: AppTheme.textDark,
+                fontWeight: FontWeight.w500,
+              ),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: GoogleFonts.outfit(
+                  fontSize: 15,
+                  color: const Color(0xFFADB5BD),
+                  fontWeight: FontWeight.w400,
+                ),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
+              ),
+            ),
+          ),
+          if (!isLast) const SizedBox(height: 16),
+        ],
+      ),
     );
   }
 }

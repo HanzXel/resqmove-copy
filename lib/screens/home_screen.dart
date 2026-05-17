@@ -11,6 +11,7 @@ import '../config/app_config.dart';
 import '../models/models.dart';
 import '../services/request_service.dart';
 import '../services/registration_service.dart';
+import '../services/session_service.dart';
 import 'driver/driver_login_screen.dart';
 import 'services_screen.dart';
 
@@ -96,6 +97,34 @@ void _showRequestAmbulanceModal(BuildContext context) {
             if (selectedEmergencyType == null || isSubmitting) return;
             HapticFeedback.heavyImpact();
             setModalState(() => isSubmitting = true);
+
+            // [FIX] Ensure the patient has a valid auth token before submitting.
+            // On first launch or after a cold-start Render delay, the token may
+            // not have been obtained by SessionService.syncPatientFromRegistration.
+            // Re-authenticating here guarantees the request has a Bearer token.
+            final authed = await SessionService.instance.ensurePatientAuthenticated();
+            if (!authed) {
+              if (ctx.mounted) {
+                setModalState(() => isSubmitting = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(children: [
+                      const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(
+                        'Could not authenticate. Please check your connection.',
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white),
+                      )),
+                    ]),
+                    backgroundColor: AppTheme.crimson,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    margin: const EdgeInsets.all(16),
+                  ),
+                );
+              }
+              return;
+            }
 
             final loc = await _resolvePickupForRequest();
 
@@ -1515,10 +1544,6 @@ class _ServiceCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-//  HOTLINE SECTION — wired to dial the number
-// ─────────────────────────────────────────────
-
-// ─────────────────────────────────────────────
 //  REQUEST HISTORY SHEET
 // ─────────────────────────────────────────────
 
@@ -1691,7 +1716,7 @@ class _HistoryItem extends StatelessWidget {
           const SizedBox(height: 3),
           Text(request.pickupLocation.address ?? dateStr,
               style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.textLight), overflow: TextOverflow.ellipsis),
-          if (request.pickupLocation.address != null) ...[  
+          if (request.pickupLocation.address != null) ...[
             const SizedBox(height: 1),
             Text(dateStr, style: GoogleFonts.outfit(fontSize: 10, color: AppTheme.textLight.withOpacity(0.7))),
           ],

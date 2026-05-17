@@ -46,16 +46,18 @@ class _DriverHospitalScreenState extends State<DriverHospitalScreen> {
         actions: [
           TextButton(
             onPressed: () {
-              // [BUG FIX] popUntil(isFirst) was returning all the way to the
-              // patient HomeScreen.  The correct stack at this point is:
-              //   MainShell → DriverLoginScreen → DriverShell → DriverNavigationScreen → DriverActiveTripScreen → DriverHospitalScreen → [this dialog]
-              // We want to land on DriverShell, so pop: dialog + hospital +
-              // active trip + navigation = 4 levels above DriverShell.
-              Navigator.pop(context);      // 1: close this dialog
-              Navigator.pop(context);      // 2: DriverHospitalScreen
-              Navigator.pop(context);      // 3: DriverActiveTripScreen
-              Navigator.pop(context);      // 4: DriverNavigationScreen
-              // Now we are back on DriverShell (dashboard).
+              // [FIX] Two clean pops instead of the fragile popUntil(count=3).
+              // Stack at this point:
+              //   [0] DriverShell
+              //   [1] DriverActiveTripScreen  (NavScreen was replaced)
+              //   [2] DriverHospitalScreen
+              //   [3] Dialog  ← we are here
+              //
+              // Pop 1: close this dialog → lands on HospitalScreen (index 2)
+              // Pop 2: pop HospitalScreen with result=true → DriverActiveTripScreen
+              //        receives the result, then pops itself → back to DriverShell.
+              Navigator.pop(context);       // close dialog
+              Navigator.pop(context, true); // pop HospitalScreen with result
             },
             child: Text('Done', style: GoogleFonts.outfit(color: AppTheme.blue, fontWeight: FontWeight.w700)),
           ),

@@ -16,27 +16,19 @@ class DriverLoginScreen extends StatefulWidget {
 class _DriverLoginScreenState extends State<DriverLoginScreen> {
   final _usernameCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
-  String? _selectedUnit;
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _errorMessage;
 
-  // ── Unit list (will come from database in future) ──────────────────────────
-  // TODO (DB): Replace with a call to GET /units to load this dynamically.
-  static const List<String> _units = [
-    'RESQ-101 · Chong Hua Hospital',
-    'RESQ-102 · Cebu Doctors\' University Hospital',
-    'RESQ-103 · Vicente Sotto Memorial Medical Center',
-    'RESQ-104 · Perpetual Succour Hospital',
-    'RESQ-105 · Cebu Velez General Hospital',
-    'RESQ-106 · UC Med',
-    'RESQ-107 · Cebu City Medical Center',
-  ];
+  // Unit ID is free-text — the driver types their own unit ID (e.g. RESQ-101).
+  // This is stored on the driver record in the backend.
+  final _unitIdCtrl = TextEditingController();
 
   @override
   void dispose() {
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
+    _unitIdCtrl.dispose();
     super.dispose();
   }
 
@@ -56,8 +48,8 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       _errorMessage = null;
     });
 
-    // Extract unit ID from selected dropdown value (e.g. "RESQ-101 · Chong Hua")
-    final unitId = _selectedUnit?.split(' · ').first;
+    // Extract unit ID from text field
+    final unitId = _unitIdCtrl.text.trim().isEmpty ? null : _unitIdCtrl.text.trim();
 
     final result = await AuthService.instance.loginAsDriver(
       username: username,
@@ -166,40 +158,14 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
                   const SizedBox(height: 26),
 
-                  // Unit selector
-                  _SectionLabel(icon: Icons.local_shipping_rounded, label: 'Assigned Unit (Optional)'),
+                  // Unit ID field
+                  _SectionLabel(icon: Icons.local_shipping_rounded, label: 'Unit ID (Optional)'),
                   const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: _selectedUnit != null ? AppTheme.blue.withOpacity(0.4) : AppTheme.border,
-                      ),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 12)],
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedUnit,
-                        isExpanded: true,
-                        hint: Text('Select ambulance unit',
-                            style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textLight)),
-                        icon: Container(
-                          padding: const EdgeInsets.all(5),
-                          decoration: BoxDecoration(
-                            color: AppTheme.surfaceLight,
-                            borderRadius: BorderRadius.circular(9),
-                          ),
-                          child: const Icon(Icons.expand_more_rounded, color: AppTheme.textLight, size: 18),
-                        ),
-                        style: GoogleFonts.outfit(fontSize: 13.5, color: AppTheme.textDark, fontWeight: FontWeight.w600),
-                        items: _units.map((u) =>
-                            DropdownMenuItem(value: u, child: Text(u, overflow: TextOverflow.ellipsis))).toList(),
-                        onChanged: (v) => setState(() => _selectedUnit = v),
-                      ),
-                    ),
+                  _LoginFieldRow(
+                    label: 'Ambulance Unit ID',
+                    hint: 'e.g. RESQ-101 (leave blank if unknown)',
+                    icon: Icons.local_shipping_rounded,
+                    controller: _unitIdCtrl,
                   ),
 
                   const SizedBox(height: 38),
