@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:geolocator/geolocator.dart';
 import '../theme/app_theme.dart';
 import '../services/registration_service.dart';
+import '../services/session_service.dart';
 import '../services/transport_service.dart';
 import '../services/event_service.dart';
 
@@ -352,6 +353,23 @@ class _BLSDetailScreenState extends State<BLSDetailScreen> {
     HapticFeedback.heavyImpact();
     setState(() => _submitting = true);
 
+    // [FIX] Ensure patient session is active before calling the API
+    final authed = await SessionService.instance.ensurePatientAuthenticated();
+    if (!authed) {
+      if (mounted) {
+        setState(() => _submitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Could not authenticate. Please check your connection.',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white)),
+          backgroundColor: AppTheme.crimson,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          margin: const EdgeInsets.all(16),
+        ));
+      }
+      return;
+    }
+
     // Try to get GPS
     double lat = 10.3220, lng = 123.8920;
     String? address;
@@ -391,6 +409,9 @@ class _BLSDetailScreenState extends State<BLSDetailScreen> {
         ),
       );
     } else {
+      // [FIX] Show descriptive error — "Patient access required" means the auth
+      // token was missing; the ensurePatientAuthenticated guard above prevents
+      // that now, but surface any other server error clearly.
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(result.errorMessage ?? 'Request failed. Please try again.',
             style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white)),
@@ -398,6 +419,7 @@ class _BLSDetailScreenState extends State<BLSDetailScreen> {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 5),
       ));
     }
   }
@@ -551,6 +573,28 @@ class _NonEmergencyBookingScreenState extends State<NonEmergencyBookingScreen> {
     }
 
     setState(() => _submittingTransport = true);
+
+    // [FIX] Ensure patient session before hitting the transport endpoint
+    final authed = await SessionService.instance.ensurePatientAuthenticated();
+    if (!authed) {
+      if (mounted) {
+        setState(() => _submittingTransport = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Row(children: [
+            const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Could not authenticate. Please check your connection.',
+                style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white))),
+          ]),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppTheme.crimson,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          margin: const EdgeInsets.all(16),
+        ));
+      }
+      return;
+    }
+
     final result = await TransportService.instance.submitBooking(
       patientName: _nameCtrl.text.trim(),
       pickupAddress: _pickupCtrl.text.trim(),
@@ -708,6 +752,23 @@ class _EventStandbyBookingScreenState extends State<EventStandbyBookingScreen> {
 
     HapticFeedback.mediumImpact();
     setState(() => _submitting = true);
+
+    // [FIX] Ensure patient session is active before hitting the API
+    final authed = await SessionService.instance.ensurePatientAuthenticated();
+    if (!authed) {
+      if (mounted) {
+        setState(() => _submitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Could not authenticate. Please check your connection.',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white)),
+          backgroundColor: AppTheme.crimson,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          margin: const EdgeInsets.all(16),
+        ));
+      }
+      return;
+    }
 
     final result = await EventService.instance.submitStandby(
       eventName: _eventNameCtrl.text.trim(),

@@ -136,6 +136,20 @@ class DriverService {
 
   // ── Complete an active trip ────────────────────────────────────────────────
 
+  // Mark driver arrived — updates backend status to in_progress
+  // so the patient tracking screen reflects the change in real time.
+  Future<DriverResult> markArrived(String requestId) async {
+    try {
+      await _client.post('/driver/trips/$requestId/arrived');
+      _log('Marked arrived for trip $requestId');
+      return DriverResult.success();
+    } on ApiException catch (e) {
+      return DriverResult.failure(e.message);
+    } catch (e) {
+      return DriverResult.failure('Failed to mark arrival.');
+    }
+  }
+
   Future<DriverResult> completeTrip(String requestId) async {
     try {
       await _client.post('/driver/trips/$requestId/complete');

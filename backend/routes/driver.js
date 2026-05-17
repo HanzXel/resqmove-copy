@@ -120,6 +120,32 @@ router.post('/requests/:id/decline', (req, res) => {
   return res.json({ success: true });
 });
 
+// ── Mark driver arrived at patient (status → in_progress) ─────────────────────
+// Called when driver taps "ARRIVED AT PATIENT". Triggers a real-time
+// tracking_update so the patient's tracking screen reflects the new state.
+router.post('/trips/:id/arrived', (req, res) => {
+  const request = db.prepare(`
+    SELECT * FROM requests WHERE id = ? AND assigned_driver_id = ?
+  `).get(req.params.id, req.user.id);
+
+  if (!request) return res.status(404).json({ message: 'Trip not found.' });
+  if (!['accepted', 'in_progress'].includes(request.status)) {
+    return res.status(400).json({ message: 'Invalid status transition.' });
+  }
+
+  db.prepare(`
+    UPDATE requests SET status = 'in_progress', updated_at = datetime('now') WHERE id = ?
+  `).run(req.params.id);
+
+  const io = req.app.get('io');
+  if (io) {
+    const snap = getTrackingSnapshot(req.params.id);
+    if (snap) io.to(`track:${req.params.id}`).emit('tracking_update', snap);
+  }
+
+  return res.json({ success: true });
+});
+
 // ── Complete an active trip ───────────────────────────────────────────────────
 router.post('/trips/:id/complete', (req, res) => {
   const request = db.prepare(`

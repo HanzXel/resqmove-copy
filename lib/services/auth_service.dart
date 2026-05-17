@@ -10,6 +10,7 @@
 //    POST /auth/refresh         body: { refresh_token }
 // ─────────────────────────────────────────────────────────────────────────────
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 import '../models/models.dart';
@@ -107,6 +108,9 @@ class AuthService {
       _currentDriver = _parseDriver(response.data);
       _isDriverSession = true;
 
+      // [FIX] Persist session type so cold-start can route back to DriverShell
+      unawaited(ApiClient.instance.saveSessionType('driver'));
+
       _log('Driver login OK id=${_currentDriver?.id}');
       return AuthResult.success(driver: _currentDriver);
     } on ApiException catch (e) {
@@ -165,7 +169,7 @@ class AuthService {
       _currentUser = null;
       _currentDriver = null;
       _isDriverSession = false;
-      _client.clearTokens();
+      await _client.clearTokens(); // [FIX] also clears persisted session type
       _log('Session cleared');
     }
   }

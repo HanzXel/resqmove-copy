@@ -78,6 +78,7 @@ class ApiClient {
 
   static const _prefsAccess = 'resqmove_access_token';
   static const _prefsRefresh = 'resqmove_refresh_token';
+  static const _prefsSessionType = 'resqmove_session_type';
 
   /// Call from `main()` before `runApp` so authenticated requests work on cold start.
   Future<void> restoreSession() async {
@@ -98,9 +99,35 @@ class ApiClient {
     unawaited(_persistTokensToDisk());
   }
 
-  void clearTokens() {
+  Future<void> clearTokens() async {
     _TokenStore.clear();
     unawaited(_clearTokensFromDisk());
+    unawaited(_clearSessionTypeFromDisk());
+  }
+
+  // ── Session type helpers (driver vs patient) ───────────────────────────────
+
+  Future<void> saveSessionType(String type) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsSessionType, type);
+    } catch (_) {}
+  }
+
+  Future<String?> getSessionType() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_prefsSessionType);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _clearSessionTypeFromDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefsSessionType);
+    } catch (_) {}
   }
 
   Future<void> _persistTokensToDisk() async {

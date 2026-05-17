@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../../models/models.dart';
 import '../../services/auth_service.dart';
@@ -26,11 +28,35 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
 
   File? _profileImage;
   final ImagePicker _picker = ImagePicker();
+  static const _kAvatarKey = 'resqmove_driver_avatar_path'; // [FIX] persist key
 
   @override
   void initState() {
     super.initState();
     _loadFromSession();
+    _loadSavedAvatar(); // [FIX] restore avatar on startup
+  }
+
+  // [FIX] Restore avatar path from SharedPreferences
+  Future<void> _loadSavedAvatar() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final path = prefs.getString(_kAvatarKey);
+      if (path != null && path.isNotEmpty) {
+        final f = File(path);
+        if (await f.exists() && mounted) {
+          setState(() => _profileImage = f);
+        }
+      }
+    } catch (_) {}
+  }
+
+  // [FIX] Persist avatar path to SharedPreferences
+  Future<void> _saveAvatarPath(String path) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kAvatarKey, path);
+    } catch (_) {}
   }
 
   void _loadFromSession() {
@@ -83,9 +109,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                 ),
                 title: Text('Take a photo', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15, color: AppTheme.textDark)),
                 onTap: () async {
-                  Navigator.pop(context);
-                  final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
-                  if (picked != null && mounted) setState(() => _profileImage = File(picked.path));
+                Navigator.pop(context);
+                final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+                if (picked != null && mounted) {
+                    setState(() => _profileImage = File(picked.path));
+                    unawaited(_saveAvatarPath(picked.path)); // [FIX] persist
+                  }
                 },
               ),
               ListTile(
@@ -98,7 +127,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                 onTap: () async {
                   Navigator.pop(context);
                   final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-                  if (picked != null && mounted) setState(() => _profileImage = File(picked.path));
+                  if (picked != null && mounted) {
+                    setState(() => _profileImage = File(picked.path));
+                    unawaited(_saveAvatarPath(picked.path)); // [FIX] persist
+                  }
                 },
               ),
               if (_profileImage != null)

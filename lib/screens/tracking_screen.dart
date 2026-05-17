@@ -130,7 +130,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
       ],
     );
   }
-
   @override
   void initState() {
     super.initState();
@@ -850,9 +849,12 @@ class _TrackingPanel extends StatelessWidget {
                   active: state.stepsActive[1],
                   isLast: false,
                 ),
+                // [FIX] Third step now reflects "Arrived" (inProgress) correctly
                 _ProgressStep(
                   icon: Icons.location_on_rounded,
-                  label: 'Arriving at Your Location',
+                  label: state.stepsActive[2]
+                      ? 'Ambulance Arrived / On Scene'
+                      : 'Arriving at Your Location',
                   time: state.stepsDone[2] ? 'Done' : 'Pending',
                   done: state.stepsDone[2],
                   active: state.stepsActive[2],

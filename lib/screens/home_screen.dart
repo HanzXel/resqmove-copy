@@ -379,6 +379,16 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() => _stats = stats);
   }
 
+  // [FIX] Navigate to the Services tab (index 1) via the MainShell
+  void _goToServices() {
+    // Navigate to Services tab by pushing the screen directly.
+    // This works whether HomeScreen is inside MainShell or standalone.
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ServicesScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -394,7 +404,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             _QuickAccessSection(),
             _StatsBar(stats: _stats),
-            _ServicesSection(),
+            // [FIX] Pass onViewAll so "View All" button switches to Services tab
+            _ServicesSection(onViewAll: _goToServices),
             _HotlineSection(),
             const SizedBox(height: 40),
           ],
@@ -1457,6 +1468,10 @@ class _StatDivider extends StatelessWidget {
 }
 
 class _ServicesSection extends StatelessWidget {
+  // [FIX] Accept a callback so tapping "View All" switches to the Services tab
+  final VoidCallback? onViewAll;
+  const _ServicesSection({this.onViewAll});
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -1475,14 +1490,25 @@ class _ServicesSection extends StatelessWidget {
                 const SizedBox(width: 12),
                 Text('Our Services', style: GoogleFonts.outfit(fontSize: 21, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
               ]),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(color: AppTheme.blue.withOpacity(0.07), borderRadius: BorderRadius.circular(14), border: Border.all(color: AppTheme.blue.withOpacity(0.18))),
-                child: Row(children: [
-                  Text('View all', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.blue)),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.arrow_forward_ios_rounded, size: 10, color: AppTheme.blue),
-                ]),
+              // [FIX] "View All" is now a tappable GestureDetector
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  if (onViewAll != null) {
+                    onViewAll!();
+                  } else {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const ServicesScreen()));
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(color: AppTheme.blue.withOpacity(0.07), borderRadius: BorderRadius.circular(14), border: Border.all(color: AppTheme.blue.withOpacity(0.18))),
+                  child: Row(children: [
+                    Text('View all', style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.blue)),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.arrow_forward_ios_rounded, size: 10, color: AppTheme.blue),
+                  ]),
+                ),
               ),
             ],
           ),
@@ -1490,11 +1516,28 @@ class _ServicesSection extends StatelessWidget {
           GridView.count(
             shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
             crossAxisCount: 2, crossAxisSpacing: 13, mainAxisSpacing: 13, childAspectRatio: 1.15,
-            children: const [
-              _ServiceCard(icon: Icons.emergency_rounded,       label: 'Emergency\nResponse',   color: AppTheme.crimson, bg: Color(0xFFFFF0F0), tag: 'Priority'),
-              _ServiceCard(icon: Icons.airport_shuttle_rounded, label: 'Patient\nTransport',    color: AppTheme.blue,   bg: Color(0xFFEFF4FF), tag: 'Non-Emergency'),
-              _ServiceCard(icon: Icons.medical_services_rounded,label: 'Event Medical\nStandby',color: AppTheme.blue,   bg: Color(0xFFEFF4FF), tag: 'Planned'),
-              _ServiceCard(icon: Icons.favorite_rounded,        label: 'Basic Life\nSupport',   color: AppTheme.crimson, bg: Color(0xFFFFF0F0), tag: 'Critical'),
+            children: [
+              // [FIX] Each card now navigates to its service screen
+              _ServiceCard(
+                icon: Icons.emergency_rounded, label: 'Emergency\nResponse',
+                color: AppTheme.crimson, bg: const Color(0xFFFFF0F0), tag: 'Priority',
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmergencyDetailScreen())),
+              ),
+              _ServiceCard(
+                icon: Icons.airport_shuttle_rounded, label: 'Patient\nTransport',
+                color: AppTheme.blue, bg: const Color(0xFFEFF4FF), tag: 'Non-Emergency',
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NonEmergencyBookingScreen())),
+              ),
+              _ServiceCard(
+                icon: Icons.medical_services_rounded, label: 'Event Medical\nStandby',
+                color: AppTheme.blue, bg: const Color(0xFFEFF4FF), tag: 'Planned',
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EventStandbyBookingScreen())),
+              ),
+              _ServiceCard(
+                icon: Icons.favorite_rounded, label: 'Basic Life\nSupport',
+                color: AppTheme.crimson, bg: const Color(0xFFFFF0F0), tag: 'Critical',
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BLSDetailScreen())),
+              ),
             ],
           ),
         ],
@@ -1505,10 +1548,13 @@ class _ServicesSection extends StatelessWidget {
 
 class _ServiceCard extends StatelessWidget {
   final IconData icon; final String label, tag; final Color color, bg;
-  const _ServiceCard({required this.icon, required this.label, required this.color, required this.bg, required this.tag});
+  final VoidCallback? onTap; // [FIX] make cards tappable
+  const _ServiceCard({required this.icon, required this.label, required this.color, required this.bg, required this.tag, this.onTap});
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return GestureDetector(
+      onTap: () { HapticFeedback.selectionClick(); onTap?.call(); },
+      child: Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white, borderRadius: BorderRadius.circular(26), border: Border.all(color: color.withOpacity(0.12)),
@@ -1539,7 +1585,8 @@ class _ServiceCard extends StatelessWidget {
           ]),
         ],
       ),
-    );
+    ), // Container
+    ); // GestureDetector
   }
 }
 

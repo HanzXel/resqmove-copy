@@ -9,7 +9,12 @@ import '../theme/app_theme.dart';
 import '../services/profile_service.dart';
 import '../services/auth_service.dart';
 import '../services/registration_service.dart';
+import '../services/request_service.dart';
 import '../models/models.dart';
+import 'home_screen.dart';
+import 'register_screen.dart';
+import 'services_screen.dart';
+import 'tracking_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -470,11 +475,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(height: 36),
 
                         Row(children: [
-                          Expanded(child: _QuickActionCard(icon: Icons.history_rounded, label: 'Request\nHistory', color: const Color(0xFF6B48FF))),
+                          Expanded(child: _QuickActionCard(
+                            icon: Icons.history_rounded, label: 'Request\nHistory', color: const Color(0xFF6B48FF),
+                            onTap: () => showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (_) => _ProfileRequestHistorySheet(),
+                            ),
+                          )),
                           const SizedBox(width: 12),
-                          Expanded(child: _QuickActionCard(icon: Icons.help_outline_rounded, label: 'Help &\nSupport', color: AppTheme.blue)),
+                          Expanded(child: _QuickActionCard(
+                            icon: Icons.help_outline_rounded, label: 'Help &\nSupport', color: AppTheme.blue,
+                            // [FIX] Opens a simple help dialog
+                            onTap: () => showDialog(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                title: Text('Help & Support', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+                                content: Text(
+                                  'For emergency dispatch, call our hotline at 0917-123-4567.\n\nFor app issues, email support@resqmove.ph or contact your barangay health officer.',
+                                  style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textMid, height: 1.5),
+                                ),
+                                actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('Close', style: GoogleFonts.outfit(color: AppTheme.blue, fontWeight: FontWeight.w700)))],
+                              ),
+                            ),
+                          )),
                           const SizedBox(width: 12),
-                          Expanded(child: _QuickActionCard(icon: Icons.notifications_outlined, label: 'Notification\nSettings', color: AppTheme.warning)),
+                          Expanded(child: _QuickActionCard(
+                            icon: Icons.notifications_outlined, label: 'Notification\nSettings', color: AppTheme.warning,
+                            // [FIX] Opens a simple notification info dialog
+                            onTap: () => showDialog(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                title: Text('Notifications', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+                                content: Text(
+                                  'ResQmove sends push notifications for ambulance dispatch updates and request status changes.\n\nTo manage notifications, go to your phone Settings > Apps > ResQmove > Notifications.',
+                                  style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textMid, height: 1.5),
+                                ),
+                                actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('Close', style: GoogleFonts.outfit(color: AppTheme.warning, fontWeight: FontWeight.w700)))],
+                              ),
+                            ),
+                          )),
                         ]),
 
                         const SizedBox(height: 28),
@@ -507,6 +550,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 Text(_isSaving ? 'SAVING...' : 'SAVE PROFILE',
                                     style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w800,
                                         color: Colors.white, letterSpacing: 1.0)),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // [FIX] Logout button
+                        GestureDetector(
+                          onTap: () async {
+                            HapticFeedback.mediumImpact();
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                title: Text('Sign Out', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.textDark)),
+                                content: Text('Are you sure you want to sign out?', style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textMid)),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancel', style: GoogleFonts.outfit(color: AppTheme.textMid, fontWeight: FontWeight.w600))),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context, true),
+                                    child: Text('Sign Out', style: GoogleFonts.outfit(color: AppTheme.crimson, fontWeight: FontWeight.w800)),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirmed == true && mounted) {
+                              await AuthService.instance.logout();
+                              await RegistrationService.instance.clearRegistration();
+                              // Navigate to root and rebuild AppBootstrap
+                              if (mounted) {
+                                Navigator.of(context).pushAndRemoveUntil(
+                                  MaterialPageRoute(builder: (_) => const _RelaunchApp()),
+                                  (_) => false,
+                                );
+                              }
+                            }
+                          },
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 18),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: AppTheme.crimson.withOpacity(0.35)),
+                              boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 5))],
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.logout_rounded, color: AppTheme.crimson, size: 20),
+                                const SizedBox(width: 12),
+                                Text('SIGN OUT',
+                                    style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.crimson, letterSpacing: 0.8)),
                               ],
                             ),
                           ),
@@ -732,11 +829,12 @@ class _CardDivider extends StatelessWidget {
 
 class _QuickActionCard extends StatelessWidget {
   final IconData icon; final String label; final Color color;
-  const _QuickActionCard({required this.icon, required this.label, required this.color});
+  final VoidCallback? onTap; // [FIX] make cards functional
+  const _QuickActionCard({required this.icon, required this.label, required this.color, this.onTap});
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => HapticFeedback.selectionClick(),
+      onTap: () { HapticFeedback.selectionClick(); onTap?.call(); },
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 18, 12, 18),
         decoration: BoxDecoration(
@@ -754,6 +852,175 @@ class _QuickActionCard extends StatelessWidget {
               style: GoogleFonts.outfit(fontSize: 10.5, fontWeight: FontWeight.w700,
                   color: AppTheme.textDark, height: 1.3)),
         ]),
+      ),
+    );
+  }
+}
+
+// Request history sheet for the Profile screen
+class _ProfileRequestHistorySheet extends StatefulWidget {
+  @override
+  State<_ProfileRequestHistorySheet> createState() => _ProfileRequestHistorySheetState();
+}
+
+class _ProfileRequestHistorySheetState extends State<_ProfileRequestHistorySheet> {
+  List<AmbulanceRequestModel> _requests = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final result = await RequestService.instance.getRequestHistory();
+      if (mounted) setState(() { _requests = result.requests; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(child: Container(width: 44, height: 4,
+            decoration: BoxDecoration(color: const Color(0xFFE5E7EB), borderRadius: BorderRadius.circular(3)))),
+          const SizedBox(height: 20),
+          Text('Request History', style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.w800, color: const Color(0xFF1A1F36))),
+          const SizedBox(height: 16),
+          if (_loading)
+            const Center(child: Padding(
+              padding: EdgeInsets.all(32),
+              child: CircularProgressIndicator(),
+            ))
+          else if (_requests.isEmpty)
+            Center(child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(children: [
+                Icon(Icons.history_rounded, size: 48, color: Colors.grey.shade300),
+                const SizedBox(height: 12),
+                Text('No requests yet', style: GoogleFonts.outfit(fontSize: 15, color: Colors.grey.shade400)),
+              ]),
+            ))
+          else
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.5),
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: _requests.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final r = _requests[i];
+                  final status = r.status.label;
+                  final type = r.emergencyType.label;
+                  final date = r.requestedAt != null
+                      ? '${r.requestedAt!.year}-${r.requestedAt!.month.toString().padLeft(2,'0')}-${r.requestedAt!.day.toString().padLeft(2,'0')}'
+                      : '';
+                  final color = r.status == RequestStatus.completed ? Colors.green
+                      : r.status == RequestStatus.cancelled ? Colors.red
+                      : Colors.orange;
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: color.withOpacity(0.1),
+                      child: Icon(Icons.emergency_rounded, color: color, size: 18),
+                    ),
+                    title: Text(type, style: GoogleFonts.outfit(fontWeight: FontWeight.w700, fontSize: 14)),
+                    subtitle: Text(date, style: GoogleFonts.outfit(fontSize: 12, color: Colors.grey)),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(status, style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+// Uses runApp-equivalent restart by pushing to a new root route.
+class _RelaunchApp extends StatefulWidget {
+  const _RelaunchApp();
+  @override
+  State<_RelaunchApp> createState() => _RelaunchAppState();
+}
+
+class _RelaunchAppState extends State<_RelaunchApp> {
+  bool? _registered;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final ok = await RegistrationService.instance.isRegistered();
+    if (mounted) setState(() => _registered = ok);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_registered == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_registered == false) {
+      return RegisterScreen(
+        onRegistered: () => setState(() => _registered = true),
+      );
+    }
+    // Show all 4 patient tabs freshly
+    return _PatientShell();
+  }
+}
+
+// A slimmed-down copy of MainShell used only post-logout inside ProfileScreen
+class _PatientShell extends StatefulWidget {
+  @override
+  State<_PatientShell> createState() => _PatientShellState();
+}
+
+class _PatientShellState extends State<_PatientShell> {
+  int _currentIndex = 0;
+
+  final _screens = const [
+    HomeScreen(),
+    ServicesScreen(),
+    TrackingScreen(),
+    ProfileScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(index: _currentIndex, children: _screens),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (i) => setState(() => _currentIndex = i),
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.medical_services_rounded), label: 'Services'),
+          BottomNavigationBarItem(icon: Icon(Icons.location_on_rounded), label: 'Track'),
+          BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
+        ],
       ),
     );
   }

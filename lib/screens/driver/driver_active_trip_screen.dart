@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'dart:async';
 
 import '../../theme/app_theme.dart';
@@ -23,6 +24,7 @@ class DriverActiveTripScreen extends StatefulWidget {
 class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   int _currentStatus = 0;
   Timer? _locationTimer;
+  final MapController _mapController = MapController(); // [FIX] live map
 
   String _etaLabel = '--';
   String _distLabel = '--';
@@ -30,6 +32,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   LatLng? _driverPos;
   LatLng? _patientPos;
   double _lastSpeedMps = 0;
+  bool _mapExpanded = false; // [FIX] collapsible map toggle
 
   final List<Map<String, dynamic>> _statusSteps = [
     {'label': 'En Route to Patient', 'icon': Icons.airport_shuttle_rounded, 'color': AppTheme.warning},
@@ -103,6 +106,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           _driverPos = newDriverPos;
           _updateLiveMetrics();
         });
+        // [FIX] Keep the map centred on the driver
+        try { _mapController.move(newDriverPos, 15); } catch (_) {}
       }
 
       await TrackingService.instance.pushDriverLocation(
@@ -155,6 +160,20 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
   Future<void> _advanceStatus() async {
     HapticFeedback.heavyImpact();
+
+    // [FIX] When the driver taps "ARRIVED AT PATIENT" (step 0 -> 1),
+    // call the backend to set status = in_progress so the patient tracking
+    // screen updates in real time instead of staying on "Ambulance Dispatched".
+    if (_currentStatus == 0) {
+      final id = _requestId;
+      if (id != null && id.isNotEmpty) {
+        unawaited(DriverService.instance.markArrived(id));
+      }
+      unawaited(NotificationService.instance.notifyStatusUpdate('Ambulance has arrived at your location.'));
+      setState(() => _currentStatus = 1);
+      return;
+    }
+
     if (_currentStatus == 1) {
       if (!mounted) return;
       unawaited(NotificationService.instance.notifyStatusUpdate('Ambulance has arrived — patient being picked up.'));
@@ -169,14 +188,20 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         MaterialPageRoute(builder: (_) => DriverHospitalScreen(request: widget.request)),
       );
       if (hospitalDone == true && mounted) {
-        // Mark the trip complete on the server
+        // [FIX] Wrap completeTrip in try/catch so navigation always proceeds
+        // even if the backend call fails (e.g. network blip).
         final id = _requestId;
         if (id != null && id.isNotEmpty) {
-          await DriverService.instance.completeTrip(id);
+          try {
+            await DriverService.instance.completeTrip(id);
+          } catch (_) {
+            // Non-fatal: the trip is functionally over; the server can reconcile.
+          }
         }
         if (!mounted) return;
         unawaited(NotificationService.instance.notifyStatusUpdate('Trip completed — patient delivered to hospital.'));
-        Navigator.pop(context); // pop DriverActiveTripScreen → back to DriverShell
+        // Single pop: DriverActiveTripScreen → DriverShell
+        Navigator.pop(context);
       }
       return;
     }
@@ -350,6 +375,145 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   _VertDivider(),
                   _ETAItem(icon: Icons.speed_rounded, label: 'Speed', value: _speedLabel, color: AppTheme.success),
                 ],
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            // [FIX] Live navigation map — collapsible so drivers can focus
+            // on trip management without losing spatial awareness.
+            GestureDetector(
+              onTap: () => setState(() => _mapExpanded = !_mapExpanded),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppTheme.blue.withOpacity(0.18)),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 12, offset: const Offset(0, 4))],
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 34, height: 34,
+                            decoration: BoxDecoration(
+                              color: AppTheme.blue.withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.map_rounded, color: AppTheme.blue, size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          Text('Live Navigation Map',
+                              style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textDark)),
+                          const Spacer(),
+                          Icon(
+                            _mapExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                            color: AppTheme.textMid, size: 22,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_mapExpanded)
+                      ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(20),
+                          bottomRight: Radius.circular(20),
+                        ),
+                        child: SizedBox(
+                          height: 260,
+                          child: Stack(
+                            children: [
+                              FlutterMap(
+                                mapController: _mapController,
+                                options: MapOptions(
+                                  initialCenter: _driverPos ?? _patientPos ?? const LatLng(10.3220, 123.8920),
+                                  initialZoom: 15,
+                                ),
+                                children: [
+                                  TileLayer(
+                                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                    userAgentPackageName: 'com.resqmove.app',
+                                  ),
+                                  MarkerLayer(
+                                    markers: [
+                                      // Patient marker
+                                      if (_patientPos != null)
+                                        Marker(
+                                          point: _patientPos!,
+                                          width: 50, height: 50,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              gradient: const LinearGradient(
+                                                colors: [Color(0xFFFF1A35), AppTheme.crimson],
+                                                begin: Alignment.topLeft, end: Alignment.bottomRight,
+                                              ),
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: Colors.white, width: 2.5),
+                                              boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.5), blurRadius: 12, spreadRadius: 2)],
+                                            ),
+                                            child: const Icon(Icons.person_pin_rounded, color: Colors.white, size: 20),
+                                          ),
+                                        ),
+                                      // Driver marker
+                                      if (_driverPos != null)
+                                        Marker(
+                                          point: _driverPos!,
+                                          width: 50, height: 50,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              color: AppTheme.blue,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: Colors.white, width: 2.5),
+                                              boxShadow: [BoxShadow(color: AppTheme.blue.withOpacity(0.5), blurRadius: 12, spreadRadius: 2)],
+                                            ),
+                                            child: const Icon(Icons.local_shipping_rounded, color: Colors.white, size: 20),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              // Recenter button
+                              Positioned(
+                                bottom: 10, right: 10,
+                                child: GestureDetector(
+                                  onTap: () {
+                                    final pos = _driverPos ?? _patientPos;
+                                    if (pos != null) {
+                                      try { _mapController.move(pos, 15); } catch (_) {}
+                                    }
+                                  },
+                                  child: Container(
+                                    width: 38, height: 38,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 8)],
+                                    ),
+                                    child: const Icon(Icons.my_location_rounded, color: AppTheme.blue, size: 18),
+                                  ),
+                                ),
+                              ),
+                              // Legend
+                              Positioned(
+                                bottom: 10, left: 10,
+                                child: Row(
+                                  children: [
+                                    _MapLegendChip(color: AppTheme.blue, label: 'You'),
+                                    const SizedBox(width: 6),
+                                    _MapLegendChip(color: AppTheme.crimson, label: 'Patient'),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
 
@@ -591,6 +755,33 @@ class _PatientInfoRow extends StatelessWidget {
         Text(value, style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textDark)),
       ])),
     ]);
+  }
+}
+
+// [FIX] Legend chip for the inline trip map
+class _MapLegendChip extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _MapLegendChip({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6)],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 9, height: 9, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+          const SizedBox(width: 5),
+          Text(label, style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textDark)),
+        ],
+      ),
+    );
   }
 }
 

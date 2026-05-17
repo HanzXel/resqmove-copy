@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../theme/app_theme.dart';
 import '../../models/models.dart';
 import '../../services/auth_service.dart';
@@ -13,6 +14,7 @@ import '../../services/driver_service.dart';
 import '../../services/notification_service.dart';
 import '../../utils/driver_request_map.dart';
 import 'driver_navigation_screen.dart';
+import 'driver_active_trip_screen.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
   const DriverDashboardScreen({super.key});
@@ -247,19 +249,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: GestureDetector(
         onTap: () async {
+          // [FIX] Resume always goes to DriverActiveTripScreen, NOT
+          // DriverNavigationScreen. The nav map is only needed before the
+          // driver has started the trip. Resuming mid-trip should show
+          // the trip management screen with live status.
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) =>
-                  DriverNavigationScreen(request: driverRequestMapForUi(r)),
+              builder: (_) => DriverActiveTripScreen(
+                  request: driverRequestMapForUi(r)),
             ),
           );
-          // [FIX] Clear stale active-trip banner and refresh fully on return
           if (mounted) {
-            setState(() {
-              _incoming = null;
-              _activeTrip = null;
-            });
+            setState(() { _incoming = null; _activeTrip = null; });
             unawaited(_refreshAll());
           }
         },
@@ -835,9 +837,32 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
           Row(
             children: [
-              Expanded(child: _QuickActionBtn(icon: Icons.phone_rounded, label: 'Call Dispatch', color: AppTheme.success)),
+              Expanded(child: _QuickActionBtn(
+                icon: Icons.phone_rounded, label: 'Call Dispatch', color: AppTheme.success,
+                // [FIX] Actually dials the dispatch hotline
+                onTap: () async {
+                  HapticFeedback.heavyImpact();
+                  final uri = Uri(scheme: 'tel', path: '09171234567');
+                  if (await canLaunchUrl(uri)) await launchUrl(uri);
+                },
+              )),
               const SizedBox(width: 12),
-              Expanded(child: _QuickActionBtn(icon: Icons.report_problem_outlined, label: 'Report Issue', color: AppTheme.warning)),
+              Expanded(child: _QuickActionBtn(
+                icon: Icons.report_problem_outlined, label: 'Report Issue', color: AppTheme.warning,
+                // [FIX] Shows a report dialog
+                onTap: () => showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    title: Text('Report Issue', style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18)),
+                    content: Text(
+                      'To report a technical issue or operational problem, please call dispatch at 0917-123-4567 or email support@resqmove.ph.',
+                      style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textMid, height: 1.5),
+                    ),
+                    actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('OK', style: GoogleFonts.outfit(color: AppTheme.warning, fontWeight: FontWeight.w700)))],
+                  ),
+                ),
+              )),
             ],
           ),
         ],
@@ -966,24 +991,28 @@ class _QuickActionBtn extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
-  const _QuickActionBtn({required this.icon, required this.label, required this.color});
+  final VoidCallback? onTap;
+  const _QuickActionBtn({required this.icon, required this.label, required this.color, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 15),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: color.withOpacity(0.20)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 8),
-          Text(label, style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w700, color: color)),
-        ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.07),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withOpacity(0.20)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(width: 8),
+            Text(label, style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.w700, color: color)),
+          ],
+        ),
       ),
     );
   }

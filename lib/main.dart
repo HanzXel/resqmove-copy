@@ -10,6 +10,8 @@ import 'screens/tracking_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/patient_login_screen.dart';
+import 'screens/driver/driver_login_screen.dart';
+import 'screens/driver/driver_shell.dart';
 import 'widgets/connectivity_gate.dart';
 import 'services/api_client.dart';
 import 'services/app_messenger.dart';
@@ -59,6 +61,8 @@ class ResQmoveApp extends StatelessWidget {
 }
 
 /// Shows quick registration on first launch, then the main tab shell.
+/// On cold-start it also checks whether the persisted session belongs to a
+/// driver so that drivers are routed to DriverShell instead of the patient UI.
 class _AppBootstrap extends StatefulWidget {
   const _AppBootstrap();
 
@@ -68,6 +72,8 @@ class _AppBootstrap extends StatefulWidget {
 
 class _AppBootstrapState extends State<_AppBootstrap> {
   bool? _registered;
+  bool _isDriverSession = false;
+  bool _bootstrapDone = false;
 
   @override
   void initState() {
@@ -76,20 +82,30 @@ class _AppBootstrapState extends State<_AppBootstrap> {
   }
 
   Future<void> _load() async {
+    // [FIX] Check if a driver token was persisted from the previous session.
+    // If so, send the driver straight to DriverShell without touching patient UI.
+    final sessionType = await ApiClient.instance.getSessionType();
+    if (sessionType == 'driver' && ApiClient.instance.isAuthenticated) {
+      if (mounted) setState(() { _isDriverSession = true; _bootstrapDone = true; });
+      return;
+    }
+
     final ok = await RegistrationService.instance.isRegistered();
     if (ok) {
       unawaited(SessionService.instance.syncPatientFromRegistration());
     }
-    if (mounted) setState(() => _registered = ok);
+    if (mounted) setState(() { _registered = ok; _bootstrapDone = true; });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_registered == null) {
+    if (!_bootstrapDone) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
+    // [FIX] Driver cold-start — go directly to DriverShell
+    if (_isDriverSession) return const DriverShell();
     if (_registered == false) {
       return RegisterScreen(
         onRegistered: () => setState(() => _registered = true),
@@ -111,10 +127,10 @@ class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
   @override
-  State<MainShell> createState() => _MainShellState();
+  State<MainShell> createState() => MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
   final List<Widget> _screens = const [
@@ -123,6 +139,9 @@ class _MainShellState extends State<MainShell> {
     TrackingScreen(),
     ProfileScreen(),
   ];
+
+  // [FIX] Exposed so child screens (e.g. HomeScreen) can switch tabs
+  void switchTab(int index) => setState(() => _currentIndex = index);
 
   @override
   Widget build(BuildContext context) {

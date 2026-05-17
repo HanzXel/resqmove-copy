@@ -61,9 +61,12 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
     setState(() => _isLoading = false);
 
     if (result.success) {
-      Navigator.pushReplacement(
+      // [FIX] Remove ALL previous routes so the back button from DriverShell
+      // can never route back to the patient RegisterScreen/MainShell.
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const DriverShell()),
+        (_) => false, // clear the entire stack
       );
     } else {
       setState(() => _errorMessage = result.errorMessage ?? 'Login failed. Please try again.');
