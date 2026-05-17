@@ -10,7 +10,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
-import '../config/app_config.dart';
 import '../services/registration_service.dart';
 import '../services/session_service.dart';
 import 'driver/driver_login_screen.dart';
@@ -141,7 +140,6 @@ class _RegisterScreenState extends State<RegisterScreen>
   }
 
   Future<void> _syncPatientInBackground() async {
-    if (AppConfig.useMockApi) return;
     try {
       await SessionService.instance.syncPatientFromRegistration();
     } catch (e, st) {
@@ -662,40 +660,57 @@ class _Field extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(16, isLast ? 8 : 8, 16, isLast ? 16 : 0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFF2F3F5),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: TextFormField(
-          controller: ctrl,
-          keyboardType: keyboard,
-          maxLines: maxLines,
-          validator: validator,
-          style: GoogleFonts.outfit(
-            fontSize: 15,
-            color: AppTheme.textDark,
-            fontWeight: FontWeight.w500,
-          ),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: GoogleFonts.outfit(
-              fontSize: 15,
-              color: const Color(0xFFADB5BD),
-              fontWeight: FontWeight.w400,
-            ),
-            suffixIcon: prefix,
-            border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 18,
-              horizontal: 18,
-            ),
-            errorStyle: GoogleFonts.outfit(
-              fontSize: 11,
-              color: AppTheme.crimson,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 7),
+            child: Text(
+              label,
+              style: GoogleFonts.outfit(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textLight,
+                letterSpacing: 0.2,
+              ),
             ),
           ),
-        ),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F3F5),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: TextFormField(
+              controller: ctrl,
+              keyboardType: keyboard,
+              maxLines: maxLines,
+              validator: validator,
+              style: GoogleFonts.outfit(
+                fontSize: 15,
+                color: AppTheme.textDark,
+                fontWeight: FontWeight.w500,
+              ),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: GoogleFonts.outfit(
+                  fontSize: 15,
+                  color: const Color(0xFFADB5BD),
+                  fontWeight: FontWeight.w400,
+                ),
+                suffixIcon: prefix,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 18,
+                  horizontal: 18,
+                ),
+                errorStyle: GoogleFonts.outfit(
+                  fontSize: 11,
+                  color: AppTheme.crimson,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

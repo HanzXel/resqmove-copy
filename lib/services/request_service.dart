@@ -1,13 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  ResQMove — Request Service
+//  ResQMove — Request Service  (live backend only, no mock)
 //  lib/services/request_service.dart
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
-
-import '../config/app_config.dart';
 import 'api_client.dart';
-import 'mock_state.dart';
 import '../models/models.dart';
 
 class RequestService {
@@ -32,22 +29,6 @@ class RequestService {
         longitude: longitude,
         address: address,
       );
-
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 800));
-        final mockRequest = AmbulanceRequestModel(
-          id: 'mock-req-${DateTime.now().millisecondsSinceEpoch}',
-          emergencyType: emergencyType,
-          status: RequestStatus.pending,
-          pickupLocation: location,
-          notes: notes,
-          requestedAt: DateTime.now(),
-        );
-        // [FIX] Store in shared mock state so driver side can see it
-        MockState.instance.submitRequest(mockRequest);
-        _log('Request submitted (mock): ${mockRequest.id}');
-        return RequestResult.success(mockRequest);
-      }
 
       final response = await _client.post(
         '/requests',
@@ -76,13 +57,6 @@ class RequestService {
 
   Future<RequestResult> getRequest(String requestId) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        final r = MockState.instance.activeRequest;
-        if (r != null && r.id == requestId) return RequestResult.success(r);
-        return RequestResult.success(_mockPendingRequest(requestId));
-      }
-
       final response = await _client.get('/requests/$requestId');
       final request = AmbulanceRequestModel.fromJson(
         response.data?['request'] as Map<String, dynamic>? ?? response.data!,
@@ -99,16 +73,6 @@ class RequestService {
 
   Future<RequestResult> getActiveRequest() async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        // [FIX] Return from shared mock state so tracking screen works
-        final r = MockState.instance.activeRequest;
-        if (r != null && r.isActive) {
-          return RequestResult.success(r);
-        }
-        return const RequestResult._(success: true, request: null);
-      }
-
       final response = await _client.get('/requests/active');
       final data = response.data;
 
@@ -134,13 +98,6 @@ class RequestService {
 
   Future<RequestResult> cancelRequest(String requestId) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        MockState.instance.clear();
-        _log('Request cancelled (mock): $requestId');
-        return const RequestResult._(success: true, request: null);
-      }
-
       await _client.patch('/requests/$requestId/cancel');
       _log('Request cancelled: $requestId');
       return const RequestResult._(success: true, request: null);
@@ -155,11 +112,6 @@ class RequestService {
 
   Future<HistoryResult> getRequestHistory() async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        return const HistoryResult._(success: true, requests: []);
-      }
-
       final response = await _client.get('/requests/history');
       final list = response.data?['requests'] as List<dynamic>? ?? [];
       final requests = list
@@ -168,9 +120,13 @@ class RequestService {
           .toList();
       return HistoryResult._(success: true, requests: requests);
     } on ApiException catch (e) {
-      return HistoryResult._(success: false, requests: const [], errorMessage: e.message);
+      return HistoryResult._(
+          success: false, requests: const [], errorMessage: e.message);
     } catch (e) {
-      return HistoryResult._(success: false, requests: const [], errorMessage: 'Failed to load history.');
+      return HistoryResult._(
+          success: false,
+          requests: const [],
+          errorMessage: 'Failed to load history.');
     }
   }
 
@@ -178,32 +134,11 @@ class RequestService {
 
   Future<AppStatsModel> getAppStats() async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        return AppStatsModel.empty();
-      }
-
       final response = await _client.get('/stats', auth: false);
       return AppStatsModel.fromJson(response.data ?? {});
     } catch (_) {
       return AppStatsModel.empty();
     }
-  }
-
-  // ── Private helpers ────────────────────────────────────────────────────────
-
-  AmbulanceRequestModel _mockPendingRequest(String id) {
-    return AmbulanceRequestModel(
-      id: id,
-      emergencyType: EmergencyType.other,
-      status: RequestStatus.pending,
-      pickupLocation: const RequestLocation(
-        latitude: 10.3220,
-        longitude: 123.8920,
-        address: 'Cebu City, PH',
-      ),
-      requestedAt: DateTime.now(),
-    );
   }
 
   void _log(String msg) {

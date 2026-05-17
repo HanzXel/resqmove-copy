@@ -1,6 +1,9 @@
-import 'package:flutter/foundation.dart';
+// ─────────────────────────────────────────────────────────────────────────────
+//  ResQMove — Transport Service  (live backend only, no mock)
+//  lib/services/transport_service.dart
+// ─────────────────────────────────────────────────────────────────────────────
 
-import '../config/app_config.dart';
+import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 
 class TransportBookingResult {
@@ -36,11 +39,6 @@ class TransportService {
     required DateTime scheduledAt,
   }) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 600));
-        return TransportBookingResult.ok('mock-transport-id');
-      }
-
       final response = await _client.post(
         '/transport',
         body: {

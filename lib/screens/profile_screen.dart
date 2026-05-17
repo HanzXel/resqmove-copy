@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import '../theme/app_theme.dart';
 import '../services/profile_service.dart';
 import '../services/auth_service.dart';
@@ -25,6 +27,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading   = true;
   bool _isSaving    = false;
   String? _errorMsg;
+  File? _profileImage;
+  final ImagePicker _picker = ImagePicker();
 
   static const List<String> _hospitals = [
     'Chong Hua Hospital',
@@ -53,6 +57,77 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _ecNameCtrl.dispose();
     _ecNumberCtrl.dispose();
     super.dispose();
+  }
+
+  // ── Profile picture picker ─────────────────────────────────────────────────
+
+  Future<void> _pickProfileImage() async {
+    HapticFeedback.selectionClick();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                width: 44, height: 5,
+                decoration: BoxDecoration(color: AppTheme.border, borderRadius: BorderRadius.circular(3)),
+              ),
+              const SizedBox(height: 20),
+              Text('Profile Photo', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: Container(
+                  width: 44, height: 44,
+                  decoration: BoxDecoration(color: AppTheme.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.camera_alt_rounded, color: AppTheme.blue),
+                ),
+                title: Text('Take a photo', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15, color: AppTheme.textDark)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+                  if (picked != null && mounted) setState(() => _profileImage = File(picked.path));
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  width: 44, height: 44,
+                  decoration: BoxDecoration(color: AppTheme.crimson.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.photo_library_rounded, color: AppTheme.crimson),
+                ),
+                title: Text('Choose from gallery', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15, color: AppTheme.textDark)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+                  if (picked != null && mounted) setState(() => _profileImage = File(picked.path));
+                },
+              ),
+              if (_profileImage != null)
+                ListTile(
+                  leading: Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.delete_rounded, color: Colors.red),
+                  ),
+                  title: Text('Remove photo', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15, color: Colors.red)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() => _profileImage = null);
+                  },
+                ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // ── Load profile from service ──────────────────────────────────────────────
@@ -190,31 +265,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               const SizedBox(height: 12),
-                              Stack(
-                                children: [
-                                  Container(
-                                    width: 96, height: 96,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      gradient: LinearGradient(colors: [Colors.white.withOpacity(0.15), Colors.white.withOpacity(0.07)]),
-                                      border: Border.all(color: Colors.white.withOpacity(0.28), width: 3),
-                                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 24, offset: const Offset(0, 10))],
-                                    ),
-                                    child: const Icon(Icons.person_rounded, color: Colors.white54, size: 52),
-                                  ),
-                                  Positioned(bottom: 2, right: 2,
-                                    child: Container(
-                                      width: 30, height: 30,
+                              GestureDetector(
+                                onTap: _pickProfileImage,
+                                child: Stack(
+                                  children: [
+                                    Container(
+                                      width: 96, height: 96,
                                       decoration: BoxDecoration(
-                                        gradient: const LinearGradient(colors: [Color(0xFF1E88E5), Color(0xFF1565C0)]),
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: const Color(0xFF0D1B2A), width: 2.5),
-                                        boxShadow: [BoxShadow(color: AppTheme.blue.withOpacity(0.45), blurRadius: 10)],
+                                        gradient: LinearGradient(colors: [Colors.white.withOpacity(0.15), Colors.white.withOpacity(0.07)]),
+                                        border: Border.all(color: Colors.white.withOpacity(0.28), width: 3),
+                                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 24, offset: const Offset(0, 10))],
                                       ),
-                                      child: const Icon(Icons.edit_rounded, color: Colors.white, size: 14),
+                                      child: _profileImage != null
+                                          ? ClipOval(child: Image.file(_profileImage!, fit: BoxFit.cover, width: 96, height: 96))
+                                          : const Icon(Icons.person_rounded, color: Colors.white54, size: 52),
                                     ),
-                                  ),
-                                ],
+                                    Positioned(bottom: 2, right: 2,
+                                      child: Container(
+                                        width: 30, height: 30,
+                                        decoration: BoxDecoration(
+                                          gradient: const LinearGradient(colors: [Color(0xFF1E88E5), Color(0xFF1565C0)]),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: const Color(0xFF0D1B2A), width: 2.5),
+                                          boxShadow: [BoxShadow(color: AppTheme.blue.withOpacity(0.45), blurRadius: 10)],
+                                        ),
+                                        child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 14),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                               const SizedBox(height: 14),
                               Text(

@@ -3,15 +3,9 @@
 //  lib/services/api_client.dart
 //
 //  Central HTTP client for all backend communication.
+//  Backend: https://resqmove-backend.onrender.com/api/v1
 //
-//  HOW TO CONNECT TO THE DATABASE (for your classmate):
-//  1. Change [baseUrl] to your actual backend server URL.
-//     e.g. 'https://api.resqmove.com/api/v1'
-//         or 'http://192.168.1.10:8000/api'  (local dev)
-//  2. All services (AuthService, RequestService, etc.) already use
-//     this client — no other changes needed across the codebase.
-//
-//  Tokens are persisted with SharedPreferences when not using mock API.
+//  Tokens are persisted with SharedPreferences.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
@@ -24,13 +18,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import 'app_messenger.dart';
 
-// ── Configuration ─────────────────────────────────────────────────────────────
-//  See lib/config/app_config.dart — use --dart-define for API_BASE_URL / USE_MOCK_API.
-
 /// Default timeout for all HTTP requests.
 const Duration _timeout = Duration(seconds: 15);
 
-// ── Token Storage (memory + SharedPreferences when live) ─────────────────────
+// ── Token Storage (memory + SharedPreferences) ────────────────────────────────
 
 class _TokenStore {
   static String? _accessToken;
@@ -90,7 +81,6 @@ class ApiClient {
 
   /// Call from `main()` before `runApp` so authenticated requests work on cold start.
   Future<void> restoreSession() async {
-    if (AppConfig.useMockApi) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final access = prefs.getString(_prefsAccess);
@@ -114,7 +104,6 @@ class ApiClient {
   }
 
   Future<void> _persistTokensToDisk() async {
-    if (AppConfig.useMockApi) return;
     final access = _TokenStore.accessToken;
     if (access == null || access.isEmpty) return;
     try {
@@ -164,10 +153,6 @@ class ApiClient {
     Map<String, String>? queryParams,
     bool auth = true,
   }) async {
-    if (AppConfig.useMockApi) {
-      return _mockResponse(path, method: 'GET');
-    }
-
     final uri = _buildUri(path, queryParams);
     try {
       final response = await http
@@ -186,10 +171,6 @@ class ApiClient {
     bool auth = true,
     Duration? timeout,
   }) async {
-    if (AppConfig.useMockApi) {
-      return _mockResponse(path, method: 'POST', body: body);
-    }
-
     final uri = _buildUri(path, null);
     try {
       final response = await http
@@ -212,10 +193,6 @@ class ApiClient {
     bool auth = true,
     Duration? timeout,
   }) async {
-    if (AppConfig.useMockApi) {
-      return _mockResponse(path, method: 'PUT', body: body);
-    }
-
     final uri = _buildUri(path, null);
     try {
       final response = await http
@@ -237,10 +214,6 @@ class ApiClient {
     Map<String, dynamic>? body,
     bool auth = true,
   }) async {
-    if (AppConfig.useMockApi) {
-      return _mockResponse(path, method: 'PATCH', body: body);
-    }
-
     final uri = _buildUri(path, null);
     try {
       final response = await http
@@ -261,10 +234,6 @@ class ApiClient {
     String path, {
     bool auth = true,
   }) async {
-    if (AppConfig.useMockApi) {
-      return _mockResponse(path, method: 'DELETE');
-    }
-
     final uri = _buildUri(path, null);
     try {
       final response = await http
@@ -341,30 +310,5 @@ class ApiClient {
       return ApiException(message: 'Network error: ${error.message}');
     }
     return ApiException(message: 'Unexpected error: $error');
-  }
-
-  // ── Mock mode ──────────────────────────────────────────────────────────────
-  //  Returns empty success responses so UI works without a server.
-  //  Your classmate's backend will replace this automatically
-  //  when AppConfig.useMockApi is false.
-
-  Future<ApiResponse<Map<String, dynamic>>> _mockResponse(
-    String path, {
-    required String method,
-    Map<String, dynamic>? body,
-  }) async {
-    // Simulate network latency
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-
-    if (kDebugMode) {
-      debugPrint('[ApiClient MOCK] $method $path body=$body');
-    }
-
-    // Return a generic success shell — services will layer real data on top
-    return const ApiResponse(
-      success: true,
-      data: {'message': 'mock_ok'},
-      statusCode: 200,
-    );
   }
 }

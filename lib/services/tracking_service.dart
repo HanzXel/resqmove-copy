@@ -1,31 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  ResQMove — Tracking Service
+//  ResQMove — Tracking Service  (live backend only, no mock)
 //  lib/services/tracking_service.dart
 //
-//  Patient-side tracking: Socket.io push when the driver updates location, plus
-//  slow HTTP polling as a fallback. Mock mode uses short polling only.
-//
-//  Improvements over original:
-//    • Heartbeat ping to detect silent socket disconnects
-//    • Exponential back-off reconnect (2 s → 30 s cap)
-//    • Stale-snapshot guard: ignores payloads older than 60 s
-//    • Auto-stops polling/socket on terminal status
-//    • Exposes connection health via [connectionState] stream
-//    • [FIX] Mock mode reads from MockState so patient can track the driver
-//
-//  Backend: GET /requests/:id/tracking, POST /driver/location, Socket.io room
-//  `track:<requestId>` with event `tracking_update`.
+//  Patient-side tracking: Socket.io push + HTTP polling fallback.
+//  Backend: GET /requests/:id/tracking, Socket.io room `track:<requestId>`
+//  with event `tracking_update`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
-
 import '../config/app_config.dart';
 import '../models/models.dart';
 import 'api_client.dart';
-import 'mock_state.dart';
 
 // ── Connection state ──────────────────────────────────────────────────────────
 enum SocketConnectionState { disconnected, connecting, connected, error }
@@ -49,8 +36,7 @@ class TrackingSnapshot {
     return TrackingSnapshot(
       driverLocation: json['driver_location'] != null
           ? DriverLocation.fromJson(
-              json['driver_location'] as Map<String, dynamic>,
-            )
+              json['driver_location'] as Map<String, dynamic>)
           : null,
       status: RequestStatusX.fromString(json['status']?.toString()),
       etaMinutes: (json['eta_minutes'] as num?)?.toInt(),
@@ -81,18 +67,14 @@ class TrackingService {
       StreamController<SocketConnectionState>.broadcast();
 
   Stream<TrackingSnapshot> get trackingStream => _streamController.stream;
-
-  /// Emits socket connection state changes so the UI can show a connectivity badge.
   Stream<SocketConnectionState> get connectionStateStream =>
       _connController.stream;
-
-  SocketConnectionState _connState = SocketConnectionState.disconnected;
 
   bool get isTracking =>
       (_pollTimer?.isActive ?? false) || (_socket?.connected ?? false);
 
   String? _currentRequestId;
-  int _reconnectDelay = 2; // seconds, doubles on each failure (max 30)
+  int _reconnectDelay = 2;
 
   // ── Start / Stop ───────────────────────────────────────────────────────────
 
@@ -101,21 +83,10 @@ class TrackingService {
     _currentRequestId = requestId;
     _reconnectDelay = 2;
 
-    _log('Tracking started for request $requestId');
+    _log('Tracking started for $requestId');
     unawaited(_fetchAndEmit(requestId));
-
-    if (AppConfig.useMockApi) {
-      // [FIX] Poll every 3 seconds in mock mode so status updates appear quickly
-      _pollTimer = Timer.periodic(
-        const Duration(seconds: 3),
-        (_) => unawaited(_fetchAndEmit(requestId)),
-      );
-      return;
-    }
-
     unawaited(_connectSocket(requestId));
 
-    // HTTP fallback poll
     _pollTimer = Timer.periodic(
       Duration(seconds: backupPollSeconds),
       (_) => unawaited(_fetchAndEmit(requestId)),
@@ -147,7 +118,7 @@ class TrackingService {
       final snapshot = await _fetchSnapshot(requestId);
       _emit(snapshot);
       if (snapshot.isTerminal) {
-        _log('Trip terminal (${snapshot.status.label}) — stopping tracker');
+        _log('Trip terminal — stopping tracker');
         stopTracking();
       }
     } catch (e) {
@@ -156,36 +127,6 @@ class TrackingService {
   }
 
   Future<TrackingSnapshot> _fetchSnapshot(String requestId) async {
-    if (AppConfig.useMockApi) {
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-
-      // [FIX] Read real status and driver location from shared MockState
-      final r = MockState.instance.activeRequest;
-      final status = (r != null && r.id == requestId)
-          ? r.status
-          : RequestStatus.pending;
-
-      // Provide driver location when trip is accepted / in progress
-      DriverLocation? driverLocation;
-      if (status == RequestStatus.accepted ||
-          status == RequestStatus.inProgress) {
-        driverLocation = DriverLocation(
-          latitude: MockState.instance.driverLat,
-          longitude: MockState.instance.driverLng,
-        );
-      }
-
-      return TrackingSnapshot(
-        driverLocation: driverLocation,
-        status: status,
-        etaMinutes: (status == RequestStatus.accepted ||
-                status == RequestStatus.inProgress)
-            ? 5
-            : null,
-        fetchedAt: DateTime.now(),
-      );
-    }
-
     final response = await _client.get('/requests/$requestId/tracking');
     return TrackingSnapshot.fromJson(response.data ?? {});
   }
@@ -206,7 +147,7 @@ class TrackingService {
     _disconnectSocket();
     final token = _client.accessToken;
     if (token == null || token.isEmpty) {
-      _log('No access token — socket tracking skipped');
+      _log('No access token — socket skipped');
       return;
     }
 
@@ -228,13 +169,11 @@ class TrackingService {
       _socket!.on('connect', (_) {
         _log('Socket connected');
         _setConnState(SocketConnectionState.connected);
-        _reconnectDelay = 2; // reset back-off on success
-
+        _reconnectDelay = 2;
         _socket!.emit('subscribe_tracking', {
           'request_id': requestId,
           'token': token,
         });
-
         _startHeartbeat(requestId);
       });
 
@@ -242,8 +181,6 @@ class TrackingService {
         _log('Socket disconnected: $reason');
         _setConnState(SocketConnectionState.disconnected);
         _heartbeatTimer?.cancel();
-
-        // If unexpected, schedule manual reconnect with back-off
         if (reason != 'io client disconnect' && _currentRequestId != null) {
           _scheduleReconnect(requestId);
         }
@@ -262,15 +199,8 @@ class TrackingService {
         }
       });
 
-      _socket!.on('tracking_error', (dynamic data) {
-        _log('tracking_error from server: $data');
-      });
-
-      _socket!.on('pong', (_) {
-        // Server acknowledged heartbeat — connection confirmed alive
-        if (kDebugMode) debugPrint('[TrackingService] Heartbeat pong received');
-      });
-
+      _socket!.on('tracking_error', (dynamic data) => _log('tracking_error: $data'));
+      _socket!.on('pong', (_) {});
       _socket!.connect();
     } catch (e) {
       _log('Socket setup error: $e');
@@ -285,7 +215,6 @@ class TrackingService {
       if (_socket?.connected == true) {
         _socket!.emit('ping');
       } else {
-        _log('Heartbeat: socket not connected, triggering reconnect');
         _heartbeatTimer?.cancel();
         if (_currentRequestId != null) _scheduleReconnect(requestId);
       }
@@ -296,7 +225,6 @@ class TrackingService {
     if (_currentRequestId == null) return;
     final delay = _reconnectDelay;
     _reconnectDelay = (_reconnectDelay * 2).clamp(2, 30);
-    _log('Reconnecting socket in ${delay}s...');
     Future.delayed(Duration(seconds: delay), () {
       if (_currentRequestId != null) unawaited(_connectSocket(requestId));
     });
@@ -305,14 +233,8 @@ class TrackingService {
   Future<void> _onSocketTracking(Map<String, dynamic> data) async {
     try {
       final snap = TrackingSnapshot.fromJson(data);
-
-      // Stale-snapshot guard: ignore data older than 60 seconds
       final age = DateTime.now().difference(snap.fetchedAt).inSeconds;
-      if (age > 60) {
-        _log('Ignoring stale snapshot (${age}s old)');
-        return;
-      }
-
+      if (age > 60) return; // stale guard
       _emit(snap);
       if (snap.isTerminal) stopTracking();
     } catch (e) {
@@ -332,7 +254,6 @@ class TrackingService {
   }
 
   void _setConnState(SocketConnectionState state) {
-    _connState = state;
     if (!_connController.isClosed) _connController.add(state);
   }
 
@@ -344,12 +265,6 @@ class TrackingService {
     String? activeRequestId,
   }) async {
     try {
-      if (AppConfig.useMockApi) {
-        // [FIX] Update shared MockState so patient tracking screen sees movement
-        MockState.instance.updateDriverLocation(latitude, longitude);
-        _log('Driver location push (mock): $latitude, $longitude');
-        return;
-      }
       await _client.post('/driver/location', body: {
         'latitude': latitude,
         'longitude': longitude,

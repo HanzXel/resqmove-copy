@@ -4,9 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:async';
-import 'dart:math' as math;
 
-import '../../config/app_config.dart';
 import '../../theme/app_theme.dart';
 import '../../services/driver_service.dart';
 import '../../services/tracking_service.dart';
@@ -26,7 +24,6 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   int _currentStatus = 0;
   Timer? _locationTimer;
 
-  // [BUG FIX] Live ETA / distance / speed — were hardcoded '0'
   String _etaLabel = '--';
   String _distLabel = '--';
   String _speedLabel = '--';
@@ -50,7 +47,6 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     _startLocationTracking();
   }
 
-  /// Parse patient coordinates from the request payload.
   LatLng? _parsePatientLatLng() {
     final pl = widget.request['pickup_location'];
     if (pl is Map) {
@@ -64,26 +60,22 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   Future<void> _startLocationTracking() async {
     final id = _requestId;
 
-    if (!AppConfig.useMockApi) {
-      // Initialize background service with a location-push callback
-      await BackgroundLocationService.instance.init(
-        onLocation: (data) {
-          TrackingService.instance.pushDriverLocation(
-            latitude: (data['latitude'] as num).toDouble(),
-            longitude: (data['longitude'] as num).toDouble(),
-            activeRequestId: data['request_id']?.toString(),
-          );
-        },
-      );
+    await BackgroundLocationService.instance.init(
+      onLocation: (data) {
+        TrackingService.instance.pushDriverLocation(
+          latitude: (data['latitude'] as num).toDouble(),
+          longitude: (data['longitude'] as num).toDouble(),
+          activeRequestId: data['request_id']?.toString(),
+        );
+      },
+    );
 
-      if (id != null && id.isNotEmpty) {
-        await BackgroundLocationService.instance.start(requestId: id);
-      }
+    if (id != null && id.isNotEmpty) {
+      await BackgroundLocationService.instance.start(requestId: id);
     }
 
-    // Foreground GPS refresh every 8 s (reduced from 12 for better live accuracy)
     _locationTimer = Timer.periodic(const Duration(seconds: 8), (_) => _pushGps());
-    unawaited(_pushGps()); // immediate first read
+    unawaited(_pushGps());
   }
 
   Future<void> _pushGps() async {
@@ -94,9 +86,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         perm = await Geolocator.requestPermission();
       }
       if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        return;
-      }
+          perm == LocationPermission.deniedForever) return;
+
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -105,7 +96,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       );
 
       final newDriverPos = LatLng(pos.latitude, pos.longitude);
-      _lastSpeedMps = pos.speed < 0 ? 0 : pos.speed; // negative = unavailable
+      _lastSpeedMps = pos.speed < 0 ? 0 : pos.speed;
 
       if (mounted) {
         setState(() {
@@ -114,28 +105,23 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         });
       }
 
-      if (!AppConfig.useMockApi) {
-        await TrackingService.instance.pushDriverLocation(
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          activeRequestId: id,
-        );
-      }
+      await TrackingService.instance.pushDriverLocation(
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        activeRequestId: id,
+      );
     } catch (_) {}
   }
 
-  /// Recomputes ETA / distance / speed labels from current GPS data.
   void _updateLiveMetrics() {
     final driver = _driverPos;
     final patient = _patientPos;
 
-    // Speed in km/h
     final speedKmh = _lastSpeedMps * 3.6;
     _speedLabel = '${speedKmh.round()} km/h';
 
     if (driver == null || patient == null) return;
 
-    // Straight-line distance using the Haversine formula
     const distCalc = Distance();
     final meters = distCalc.as(LengthUnit.Meter, driver, patient);
 
@@ -146,7 +132,6 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
       _distLabel = '${km.toStringAsFixed(km < 10 ? 1 : 0)} km';
     }
 
-    // ETA: distance ÷ speed; fall back to 40 km/h average if GPS speed is 0
     final effectiveSpeedMps = _lastSpeedMps > 0.5 ? _lastSpeedMps : (40.0 / 3.6);
     final etaSecs = meters / effectiveSpeedMps;
     final etaMins = (etaSecs / 60).ceil();
@@ -164,9 +149,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   @override
   void dispose() {
     _locationTimer?.cancel();
-    if (!AppConfig.useMockApi) {
-      unawaited(BackgroundLocationService.instance.stop());
-    }
+    unawaited(BackgroundLocationService.instance.stop());
     super.dispose();
   }
 
@@ -174,7 +157,6 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     HapticFeedback.heavyImpact();
     if (_currentStatus == 1) {
       if (!mounted) return;
-      // Notify patient that ambulance is picking up
       unawaited(NotificationService.instance.notifyStatusUpdate('Ambulance has arrived — patient being picked up.'));
       Navigator.push(context,
           MaterialPageRoute(builder: (_) => DriverHospitalScreen(request: widget.request)));
@@ -182,14 +164,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     }
     if (_currentStatus < _statusSteps.length - 1) {
       setState(() => _currentStatus++);
-      // Fire status notification
       final label = _statusSteps[_currentStatus]['label'] as String;
       unawaited(NotificationService.instance.notifyStatusUpdate(label));
       return;
     }
     // Final step: complete trip on server
     final id = _requestId;
-    if (id != null && id.isNotEmpty && !AppConfig.useMockApi) {
+    if (id != null && id.isNotEmpty) {
       final res = await DriverService.instance.completeTrip(id);
       if (!mounted) return;
       if (!res.success) {
@@ -273,7 +254,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Status banner ──
+            // Status banner
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(22),
@@ -286,7 +267,6 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(color: stepColor.withOpacity(0.40), blurRadius: 24, offset: const Offset(0, 10)),
-                  BoxShadow(color: stepColor.withOpacity(0.15), blurRadius: 8, offset: const Offset(0, 3)),
                 ],
               ),
               child: Row(
@@ -307,10 +287,8 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                       children: [
                         Text('Current Status',
                             style: GoogleFonts.outfit(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.w500)),
-                        Text(
-                          currentStep['label'],
-                          style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: Colors.white),
-                        ),
+                        Text(currentStep['label'],
+                            style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: Colors.white)),
                         const SizedBox(height: 6),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
@@ -331,7 +309,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
             const SizedBox(height: 18),
 
-            // ── ETA Row — [BUG FIX] now shows live computed values ──
+            // ETA Row
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
@@ -353,15 +331,13 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
             const SizedBox(height: 18),
 
-            // ── Patient Details ──
-            Row(
-              children: [
-                Container(width: 3, height: 16,
-                  decoration: BoxDecoration(color: AppTheme.crimson, borderRadius: BorderRadius.circular(2))),
-                const SizedBox(width: 9),
-                Text('Patient Details', style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
-              ],
-            ),
+            // Patient Details
+            Row(children: [
+              Container(width: 3, height: 16,
+                decoration: BoxDecoration(color: AppTheme.crimson, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(width: 9),
+              Text('Patient Details', style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+            ]),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(18),
@@ -371,37 +347,27 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 border: Border.all(color: AppTheme.border),
                 boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 12, offset: const Offset(0, 4))],
               ),
-              child: Column(
-                children: [
-                  _PatientInfoRow(icon: Icons.emergency_rounded, label: 'Emergency',
-                      value: (widget.request['emergencyType'] ?? widget.request['emergency_type'] ?? 'Not provided').toString(), color: AppTheme.crimson),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Divider(color: AppTheme.border, height: 1),
-                  ),
-                  _PatientInfoRow(icon: Icons.location_on_rounded, label: 'Location',
-                      value: (widget.request['location'] ?? 'Not provided').toString(), color: AppTheme.blue),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Divider(color: AppTheme.border, height: 1),
-                  ),
-                  _PatientInfoRow(icon: Icons.phone_rounded, label: 'Contact',
-                      value: widget.request['contact'] ?? 'Not provided', color: AppTheme.success),
-                ],
-              ),
+              child: Column(children: [
+                _PatientInfoRow(icon: Icons.emergency_rounded, label: 'Emergency',
+                    value: (widget.request['emergencyType'] ?? widget.request['emergency_type'] ?? 'Not provided').toString(), color: AppTheme.crimson),
+                const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(color: AppTheme.border, height: 1)),
+                _PatientInfoRow(icon: Icons.location_on_rounded, label: 'Location',
+                    value: (widget.request['location'] ?? 'Not provided').toString(), color: AppTheme.blue),
+                const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(color: AppTheme.border, height: 1)),
+                _PatientInfoRow(icon: Icons.phone_rounded, label: 'Contact',
+                    value: widget.request['contact'] ?? 'Not provided', color: AppTheme.success),
+              ]),
             ),
 
             const SizedBox(height: 18),
 
-            // ── Progress Steps ──
-            Row(
-              children: [
-                Container(width: 3, height: 16,
-                  decoration: BoxDecoration(color: AppTheme.blue, borderRadius: BorderRadius.circular(2))),
-                const SizedBox(width: 9),
-                Text('Trip Progress', style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
-              ],
-            ),
+            // Trip Progress
+            Row(children: [
+              Container(width: 3, height: 16,
+                decoration: BoxDecoration(color: AppTheme.blue, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(width: 9),
+              Text('Trip Progress', style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+            ]),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(18),
@@ -422,65 +388,55 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Column(
-                        children: [
-                          Container(
-                            width: 38, height: 38,
-                            decoration: BoxDecoration(
-                              color: done ? AppTheme.success.withOpacity(0.12) : (active ? color.withOpacity(0.12) : AppTheme.surfaceLight),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: done ? AppTheme.success.withOpacity(0.35) : (active ? color.withOpacity(0.4) : AppTheme.border),
-                              ),
-                            ),
-                            child: Icon(
-                              done ? Icons.check_rounded : step['icon'] as IconData,
-                              color: done ? AppTheme.success : color,
-                              size: 18,
+                      Column(children: [
+                        Container(
+                          width: 38, height: 38,
+                          decoration: BoxDecoration(
+                            color: done ? AppTheme.success.withOpacity(0.12) : (active ? color.withOpacity(0.12) : AppTheme.surfaceLight),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: done ? AppTheme.success.withOpacity(0.35) : (active ? color.withOpacity(0.4) : AppTheme.border),
                             ),
                           ),
-                          if (!isLast)
-                            Container(
-                              width: 2, height: 28,
-                              margin: const EdgeInsets.symmetric(vertical: 4),
-                              decoration: BoxDecoration(
-                                color: done ? AppTheme.success.withOpacity(0.3) : AppTheme.border,
-                                borderRadius: BorderRadius.circular(1),
-                              ),
+                          child: Icon(done ? Icons.check_rounded : step['icon'] as IconData, color: done ? AppTheme.success : color, size: 18),
+                        ),
+                        if (!isLast)
+                          Container(
+                            width: 2, height: 28,
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            decoration: BoxDecoration(
+                              color: done ? AppTheme.success.withOpacity(0.3) : AppTheme.border,
+                              borderRadius: BorderRadius.circular(1),
                             ),
-                        ],
-                      ),
+                          ),
+                      ]),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Padding(
                           padding: EdgeInsets.only(bottom: isLast ? 0 : 28, top: 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  step['label'],
-                                  style: GoogleFonts.outfit(
-                                    fontSize: 14,
-                                    fontWeight: active ? FontWeight.w700 : FontWeight.w400,
-                                    color: active ? AppTheme.textDark : (done ? AppTheme.textMid : AppTheme.textLight),
-                                  ),
+                          child: Row(children: [
+                            Expanded(
+                              child: Text(step['label'],
+                                style: GoogleFonts.outfit(
+                                  fontSize: 14,
+                                  fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+                                  color: active ? AppTheme.textDark : (done ? AppTheme.textMid : AppTheme.textLight),
                                 ),
                               ),
-                              if (done)
-                                const Icon(Icons.check_circle_rounded, color: AppTheme.success, size: 18)
-                              else if (active)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: color.withOpacity(0.10),
-                                    borderRadius: BorderRadius.circular(9),
-                                    border: Border.all(color: color.withOpacity(0.25)),
-                                  ),
-                                  child: Text('Active',
-                                      style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+                            ),
+                            if (done)
+                              const Icon(Icons.check_circle_rounded, color: AppTheme.success, size: 18)
+                            else if (active)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(9),
+                                  border: Border.all(color: color.withOpacity(0.25)),
                                 ),
-                            ],
-                          ),
+                                child: Text('Active', style: GoogleFonts.outfit(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+                              ),
+                          ]),
                         ),
                       ),
                     ],
@@ -491,7 +447,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
             const SizedBox(height: 24),
 
-            // ── Action Button ──
+            // Action Button
             GestureDetector(
               onTap: _advanceStatus,
               child: AnimatedContainer(
@@ -500,18 +456,12 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 19),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [
-                      stepColor,
-                      Color.lerp(stepColor, Colors.black, 0.18)!,
-                    ],
+                    colors: [stepColor, Color.lerp(stepColor, Colors.black, 0.18)!],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(color: stepColor.withOpacity(0.45), blurRadius: 24, offset: const Offset(0, 10)),
-                    BoxShadow(color: stepColor.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 3)),
-                  ],
+                  boxShadow: [BoxShadow(color: stepColor.withOpacity(0.45), blurRadius: 24, offset: const Offset(0, 10))],
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -528,7 +478,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
             const SizedBox(height: 12),
 
-            // ── Cancel ──
+            // Cancel
             GestureDetector(
               onTap: _cancelTrip,
               child: Container(
@@ -580,27 +530,19 @@ class _ETAItem extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
-
   const _ETAItem({required this.icon, required this.label, required this.value, required this.color});
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Column(
-        children: [
-          Container(
-            width: 38, height: 38,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.10),
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: Icon(icon, color: color, size: 18),
-          ),
-          const SizedBox(height: 8),
-          Text(value, style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
-          Text(label, style: GoogleFonts.outfit(fontSize: 10.5, color: AppTheme.textLight)),
-        ],
-      ),
+      child: Column(children: [
+        Container(width: 38, height: 38,
+          decoration: BoxDecoration(color: color.withOpacity(0.10), borderRadius: BorderRadius.circular(11)),
+          child: Icon(icon, color: color, size: 18)),
+        const SizedBox(height: 8),
+        Text(value, style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+        Text(label, style: GoogleFonts.outfit(fontSize: 10.5, color: AppTheme.textLight)),
+      ]),
     );
   }
 }
@@ -610,31 +552,21 @@ class _PatientInfoRow extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
-
   const _PatientInfoRow({required this.icon, required this.label, required this.value, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 36, height: 36,
-          decoration: BoxDecoration(color: color.withOpacity(0.10), borderRadius: BorderRadius.circular(10)),
-          child: Icon(icon, color: color, size: 16),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.textLight, fontWeight: FontWeight.w500)),
-              const SizedBox(height: 2),
-              Text(value, style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textDark)),
-            ],
-          ),
-        ),
-      ],
-    );
+    return Row(children: [
+      Container(width: 36, height: 36,
+        decoration: BoxDecoration(color: color.withOpacity(0.10), borderRadius: BorderRadius.circular(10)),
+        child: Icon(icon, color: color, size: 16)),
+      const SizedBox(width: 14),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.textLight, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 2),
+        Text(value, style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textDark)),
+      ])),
+    ]);
   }
 }
 
@@ -671,27 +603,22 @@ class _CancelSheetState extends State<_CancelSheet> {
           Center(child: Container(width: 44, height: 4,
             decoration: BoxDecoration(color: AppTheme.border, borderRadius: BorderRadius.circular(3)))),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              Container(
-                width: 44, height: 44,
-                decoration: BoxDecoration(
-                  color: AppTheme.crimson.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(13),
-                  border: Border.all(color: AppTheme.crimson.withOpacity(0.2)),
-                ),
-                child: const Icon(Icons.cancel_outlined, color: AppTheme.crimson, size: 22),
+          Row(children: [
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                color: AppTheme.crimson.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: AppTheme.crimson.withOpacity(0.2)),
               ),
-              const SizedBox(width: 14),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Cancel Trip', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
-                  Text('Select a reason for cancellation', style: GoogleFonts.outfit(fontSize: 12, color: AppTheme.textLight)),
-                ],
-              ),
-            ],
-          ),
+              child: const Icon(Icons.cancel_outlined, color: AppTheme.crimson, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Cancel Trip', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+              Text('Select a reason for cancellation', style: GoogleFonts.outfit(fontSize: 12, color: AppTheme.textLight)),
+            ]),
+          ]),
           const SizedBox(height: 20),
           ..._reasons.map((r) => GestureDetector(
             onTap: () => setState(() => _selectedReason = r),
@@ -707,18 +634,15 @@ class _CancelSheetState extends State<_CancelSheet> {
                   width: _selectedReason == r ? 1.5 : 1,
                 ),
               ),
-              child: Row(
-                children: [
-                  Icon(
-                    _selectedReason == r ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
-                    color: _selectedReason == r ? AppTheme.crimson : AppTheme.textLight,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(r,
-                      style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.textDark))),
-                ],
-              ),
+              child: Row(children: [
+                Icon(
+                  _selectedReason == r ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
+                  color: _selectedReason == r ? AppTheme.crimson : AppTheme.textLight,
+                  size: 18,
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Text(r, style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.textDark))),
+              ]),
             ),
           )),
           const SizedBox(height: 16),
@@ -735,13 +659,9 @@ class _CancelSheetState extends State<_CancelSheet> {
                     ? [BoxShadow(color: AppTheme.crimson.withOpacity(0.35), blurRadius: 16, offset: const Offset(0, 7))]
                     : [],
               ),
-              child: Text(
-                'Confirm Cancellation',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(
-                    fontSize: 15, fontWeight: FontWeight.w700,
-                    color: _selectedReason != null ? Colors.white : AppTheme.textLight),
-              ),
+              child: Text('Confirm Cancellation', textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.w700,
+                    color: _selectedReason != null ? Colors.white : AppTheme.textLight)),
             ),
           ),
         ],

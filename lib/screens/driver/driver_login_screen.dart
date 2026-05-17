@@ -530,39 +530,56 @@ class _LoginFieldRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFF2F3F5),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: TextField(
-          controller: controller,
-          obscureText: obscure,
-          style: GoogleFonts.outfit(
-            fontSize: 15,
-            color: AppTheme.textDark,
-            fontWeight: FontWeight.w500,
-          ),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: GoogleFonts.outfit(
-              fontSize: 15,
-              color: const Color(0xFFADB5BD),
-              fontWeight: FontWeight.w400,
-            ),
-            suffixIcon: suffix != null
-                ? Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: suffix,
-                  )
-                : null,
-            border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 18,
-              horizontal: 18,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 7),
+            child: Text(
+              label,
+              style: GoogleFonts.outfit(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textLight,
+                letterSpacing: 0.2,
+              ),
             ),
           ),
-        ),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F3F5),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: TextField(
+              controller: controller,
+              obscureText: obscure,
+              style: GoogleFonts.outfit(
+                fontSize: 15,
+                color: AppTheme.textDark,
+                fontWeight: FontWeight.w500,
+              ),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: GoogleFonts.outfit(
+                  fontSize: 15,
+                  color: const Color(0xFFADB5BD),
+                  fontWeight: FontWeight.w400,
+                ),
+                suffixIcon: suffix != null
+                    ? Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: suffix,
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 18,
+                  horizontal: 18,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

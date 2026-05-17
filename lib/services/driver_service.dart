@@ -1,14 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  ResQMove — Driver Service
+//  ResQMove — Driver Service  (live backend only, no mock)
 //  lib/services/driver_service.dart
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
-
-import '../config/app_config.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
-import 'mock_state.dart';
 import '../models/models.dart';
 
 class DriverService {
@@ -21,14 +18,6 @@ class DriverService {
 
   Future<DriverResult> setStatus(DriverStatus status) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        final updated = AuthService.instance.currentDriver?.copyWith(status: status);
-        if (updated != null) AuthService.instance.updateCachedDriver(updated);
-        _log('Status set to ${status.label} (mock)');
-        return DriverResult.success();
-      }
-
       await _client.patch('/driver/status', body: {'status': status.label});
       final updated = AuthService.instance.currentDriver?.copyWith(status: status);
       if (updated != null) AuthService.instance.updateCachedDriver(updated);
@@ -45,16 +34,6 @@ class DriverService {
 
   Future<RequestListResult> getIncomingRequests() async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        // [FIX] Return any pending request from shared mock state
-        final r = MockState.instance.activeRequest;
-        if (r != null && r.status == RequestStatus.pending) {
-          return RequestListResult._(success: true, requests: [r]);
-        }
-        return const RequestListResult._(success: true, requests: []);
-      }
-
       final response = await _client.get('/driver/requests');
       final list = response.data?['requests'] as List<dynamic>? ?? [];
       final requests = list
@@ -63,9 +42,13 @@ class DriverService {
           .toList();
       return RequestListResult._(success: true, requests: requests);
     } on ApiException catch (e) {
-      return RequestListResult._(success: false, requests: const [], errorMessage: e.message);
+      return RequestListResult._(
+          success: false, requests: const [], errorMessage: e.message);
     } catch (e) {
-      return RequestListResult._(success: false, requests: const [], errorMessage: 'Failed to load requests.');
+      return RequestListResult._(
+          success: false,
+          requests: const [],
+          errorMessage: 'Failed to load requests.');
     }
   }
 
@@ -73,15 +56,6 @@ class DriverService {
 
   Future<ActiveTripResult> getActiveTrip() async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        final r = MockState.instance.activeRequest;
-        if (r != null && r.status == RequestStatus.accepted) {
-          return ActiveTripResult._(success: true, request: r);
-        }
-        return const ActiveTripResult._(success: true, request: null);
-      }
-
       final response = await _client.get('/driver/active-trip');
       final data = response.data;
 
@@ -97,9 +71,13 @@ class DriverService {
       if (e.statusCode == 404) {
         return const ActiveTripResult._(success: true, request: null);
       }
-      return ActiveTripResult._(success: false, request: null, errorMessage: e.message);
+      return ActiveTripResult._(
+          success: false, request: null, errorMessage: e.message);
     } catch (e) {
-      return ActiveTripResult._(success: false, request: null, errorMessage: 'Failed to fetch active trip.');
+      return ActiveTripResult._(
+          success: false,
+          request: null,
+          errorMessage: 'Failed to fetch active trip.');
     }
   }
 
@@ -107,14 +85,6 @@ class DriverService {
 
   Future<DriverResult> acceptRequest(String requestId) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 600));
-        // [FIX] Update shared mock state so patient side sees "accepted"
-        MockState.instance.acceptRequest(requestId);
-        _log('Request $requestId accepted (mock)');
-        return DriverResult.success();
-      }
-
       await _client.post('/driver/requests/$requestId/accept');
       _log('Request $requestId accepted');
       return DriverResult.success();
@@ -129,12 +99,6 @@ class DriverService {
 
   Future<DriverResult> declineRequest(String requestId) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        _log('Request $requestId declined (mock)');
-        return DriverResult.success();
-      }
-
       await _client.post('/driver/requests/$requestId/decline');
       _log('Request $requestId declined');
       return DriverResult.success();
@@ -149,11 +113,6 @@ class DriverService {
 
   Future<RequestListResult> getTripHistory() async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        return const RequestListResult._(success: true, requests: []);
-      }
-
       final response = await _client.get(
         '/driver/trips',
         queryParams: {'status': 'completed,cancelled'},
@@ -165,9 +124,13 @@ class DriverService {
           .toList();
       return RequestListResult._(success: true, requests: trips);
     } on ApiException catch (e) {
-      return RequestListResult._(success: false, requests: const [], errorMessage: e.message);
+      return RequestListResult._(
+          success: false, requests: const [], errorMessage: e.message);
     } catch (e) {
-      return RequestListResult._(success: false, requests: const [], errorMessage: 'Failed to load trip history.');
+      return RequestListResult._(
+          success: false,
+          requests: const [],
+          errorMessage: 'Failed to load trip history.');
     }
   }
 
@@ -175,14 +138,6 @@ class DriverService {
 
   Future<DriverResult> completeTrip(String requestId) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 600));
-        MockState.instance.updateStatus(requestId, RequestStatus.completed);
-        MockState.instance.clear();
-        _log('Trip $requestId completed (mock)');
-        return DriverResult.success();
-      }
-
       await _client.post('/driver/trips/$requestId/complete');
       _log('Trip $requestId completed');
       return DriverResult.success();
@@ -197,11 +152,6 @@ class DriverService {
 
   Future<DriverStats> getStats() async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        return DriverStats.empty();
-      }
-
       final response = await _client.get('/driver/stats');
       return DriverStats.fromJson(response.data ?? {});
     } catch (_) {

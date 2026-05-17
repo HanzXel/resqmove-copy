@@ -6,7 +6,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 
-import '../../config/app_config.dart';
 import '../../theme/app_theme.dart';
 import '../../services/tracking_service.dart';
 import '../../services/routing_service.dart';
@@ -39,8 +38,6 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
     _patientPos = _parsePatientLatLng();
     _routePolyline = [_driverPos, _patientPos];
     unawaited(_bootstrapNav());
-    // [BUG FIX] In mock mode we still start a GPS timer so ETA/distance
-    // update when the device moves, but we skip the server push.
     _locationTimer = Timer.periodic(const Duration(seconds: 10), (_) => _pushGps());
     unawaited(_pushGps());
   }
@@ -69,20 +66,14 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
         perm = await Geolocator.requestPermission();
       }
       if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        return;
-      }
+          perm == LocationPermission.deniedForever) return;
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
           timeLimit: Duration(seconds: 8),
         ),
       );
-      if (mounted) {
-        setState(() {
-          _driverPos = LatLng(pos.latitude, pos.longitude);
-        });
-      }
+      if (mounted) setState(() => _driverPos = LatLng(pos.latitude, pos.longitude));
     } catch (_) {}
   }
 
@@ -115,9 +106,7 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
         perm = await Geolocator.requestPermission();
       }
       if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        return;
-      }
+          perm == LocationPermission.deniedForever) return;
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -127,36 +116,19 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
       if (mounted) {
         setState(() {
           _driverPos = LatLng(pos.latitude, pos.longitude);
-          // [BUG FIX] Recompute distance/ETA every GPS tick in both mock and
-          // live mode so the overlays are never stuck at '--'.
           _applyStraightLineMetrics();
         });
       }
-      // Only push to server when not using mock API
-      if (!AppConfig.useMockApi) {
-        await TrackingService.instance.pushDriverLocation(
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          activeRequestId: id,
-        );
-        _scheduleRouteRefresh();
-      }
+      await TrackingService.instance.pushDriverLocation(
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        activeRequestId: id,
+      );
+      _scheduleRouteRefresh();
     } catch (_) {}
   }
 
   Future<void> _loadRoute() async {
-    if (AppConfig.useMockApi) {
-      // [BUG FIX] Mock mode now shows a real straight-line ETA instead of '--'.
-      // A 40 km/h average speed is used as a reasonable city-driving estimate.
-      if (mounted) {
-        setState(() {
-          _routePolyline = [_driverPos, _patientPos];
-          _applyStraightLineMetrics();
-        });
-      }
-      return;
-    }
-
     if (mounted) setState(() => _routingLoading = true);
     final route =
         await RoutingService.instance.fetchDrivingRoute(_driverPos, _patientPos);
@@ -173,18 +145,15 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
       setState(() {
         _routingLoading = false;
         _routePolyline = [_driverPos, _patientPos];
-        // [BUG FIX] Fall back to straight-line estimate instead of '--'
         _applyStraightLineMetrics();
       });
     }
   }
 
-  /// Computes straight-line distance AND an ETA estimate (40 km/h average).
   void _applyStraightLineMetrics() {
     const d = Distance();
     final meters = d.as(LengthUnit.Meter, _driverPos, _patientPos);
     _distLabel = _formatDistanceKm(meters / 1000.0);
-    // 40 km/h = 11.11 m/s — reasonable city speed for an ambulance estimate
     const double avgSpeedMps = 40.0 / 3.6;
     _etaLabel = _formatDriveEta(meters / avgSpeedMps);
   }
@@ -204,7 +173,6 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
   }
 
   void _scheduleRouteRefresh() {
-    if (AppConfig.useMockApi) return;
     _routeRefreshDebounce?.cancel();
     _routeRefreshDebounce =
         Timer(const Duration(seconds: 8), () => unawaited(_loadRoute()));
@@ -223,17 +191,13 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
       backgroundColor: AppTheme.background,
       body: Column(
         children: [
-          // Map (expanded)
           Expanded(
             flex: 6,
             child: Stack(
               children: [
                 FlutterMap(
                   mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _mapCenter,
-                    initialZoom: 14.5,
-                  ),
+                  options: MapOptions(initialCenter: _mapCenter, initialZoom: 14.5),
                   children: [
                     TileLayer(
                       urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -254,7 +218,6 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                     ),
                     MarkerLayer(
                       markers: [
-                        // Driver
                         Marker(
                           point: _driverPos,
                           width: 56, height: 56,
@@ -268,7 +231,6 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                             child: const Icon(Icons.local_shipping_rounded, color: Colors.white, size: 24),
                           ),
                         ),
-                        // Patient
                         Marker(
                           point: _patientPos,
                           width: 56, height: 56,
@@ -291,14 +253,12 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                   ],
                 ),
 
-                // Top overlays
                 SafeArea(
                   bottom: false,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                     child: Row(
                       children: [
-                        // Back button
                         GestureDetector(
                           onTap: () => Navigator.pop(context),
                           child: Container(
@@ -313,7 +273,6 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        // ETA
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           decoration: BoxDecoration(
@@ -330,14 +289,14 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text('ETA to Patient', style: GoogleFonts.outfit(fontSize: 9.5, color: AppTheme.textLight)),
-                                  Text(_routingLoading ? '…' : _etaLabel, style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.warning)),
+                                  Text(_routingLoading ? '…' : _etaLabel,
+                                      style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.warning)),
                                 ],
                               ),
                             ],
                           ),
                         ),
                         const Spacer(),
-                        // Distance
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           decoration: BoxDecoration(
@@ -354,7 +313,8 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text('Distance', style: GoogleFonts.outfit(fontSize: 9.5, color: AppTheme.textLight)),
-                                  Text(_routingLoading ? '…' : _distLabel, style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.blue)),
+                                  Text(_routingLoading ? '…' : _distLabel,
+                                      style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w900, color: AppTheme.blue)),
                                 ],
                               ),
                             ],
@@ -365,7 +325,6 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                   ),
                 ),
 
-                // Recenter
                 Positioned(
                   bottom: 18, right: 16,
                   child: GestureDetector(
@@ -383,7 +342,6 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                   ),
                 ),
 
-                // Legend chips
                 Positioned(
                   bottom: 18, left: 16,
                   child: Row(
@@ -398,7 +356,6 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
             ),
           ),
 
-          // Bottom panel
           Container(
             decoration: const BoxDecoration(
               color: Colors.white,
@@ -416,7 +373,6 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                // Request info card
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -478,10 +434,7 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // Start navigation button
                 GestureDetector(
                   onTap: () {
                     HapticFeedback.heavyImpact();

@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import '../config/app_config.dart';
 import '../models/models.dart';
 import 'auth_service.dart';
 import 'profile_service.dart';
@@ -14,8 +13,6 @@ class SessionService {
   /// Logs in with Mobile No. 1 and pushes profile fields to the API.
   Future<void> syncPatientFromRegistration() async {
     try {
-      if (AppConfig.useMockApi) return;
-
       final reg = await RegistrationService.instance.loadRegistration();
       if (reg == null || reg.mobilePrimary.trim().isEmpty) return;
 

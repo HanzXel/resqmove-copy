@@ -1,27 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  ResQMove — Auth Service
+//  ResQMove — Auth Service  (live backend only, no mock)
 //  lib/services/auth_service.dart
 //
-//  Handles login, logout, and session state for both:
-//    • Patients  (phone-number based, no password needed on patient side)
-//    • Drivers   (username + password, as seen in driver_login_screen.dart)
-//
-//  HOW MOCK MODE WORKS:
-//  - AppConfig.useMockApi = true  → simulates login success, returns fake tokens
-//  - AppConfig.useMockApi = false → hits real backend endpoints via ApiClient
-//
-//  ENDPOINTS YOUR CLASSMATE NEEDS TO IMPLEMENT:
+//  ENDPOINTS:
 //    POST /auth/patient/login   body: { contact_number }
 //    POST /auth/driver/register body: { driver_id, password, full_name, ... }
 //    POST /auth/driver/login    body: { username, password, unit_id? }
 //    POST /auth/logout          header: Authorization Bearer <token>
 //    POST /auth/refresh         body: { refresh_token }
-//
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'package:flutter/foundation.dart';
-
-import '../config/app_config.dart';
 import 'api_client.dart';
 import '../models/models.dart';
 
@@ -70,26 +59,9 @@ class AuthService {
   bool get isPatientSession => isLoggedIn && !_isDriverSession;
 
   // ── Patient Login ──────────────────────────────────────────────────────────
-  //  Patient-side login uses contact number only (no password).
-  //  Adjust body fields to match your classmate's API contract.
 
-  Future<AuthResult> loginAsPatient({
-    required String contactNumber,
-  }) async {
+  Future<AuthResult> loginAsPatient({required String contactNumber}) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 900));
-        _currentUser = UserModel(
-          id: 'mock-user-001',
-          fullName: '',
-          contactNumber: contactNumber,
-        );
-        _isDriverSession = false;
-        _client.setTokens(access: 'mock-access-token', refresh: 'mock-refresh-token');
-        _log('Patient login OK (mock) contact=$contactNumber');
-        return AuthResult.success(user: _currentUser);
-      }
-
       final response = await _client.post(
         '/auth/patient/login',
         body: {'contact_number': contactNumber},
@@ -113,8 +85,6 @@ class AuthService {
   }
 
   // ── Driver Login ───────────────────────────────────────────────────────────
-  //  Matches the fields in driver_login_screen.dart:
-  //  username/driver-ID, password, and optional unit_id.
 
   Future<AuthResult> loginAsDriver({
     required String username,
@@ -122,22 +92,6 @@ class AuthService {
     String? unitId,
   }) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 900));
-        _currentDriver = DriverModel(
-          id: 'mock-driver-001',
-          fullName: '',
-          driverId: username,
-          contactNumber: '',
-          unitId: unitId,
-          status: DriverStatus.offline,
-        );
-        _isDriverSession = true;
-        _client.setTokens(access: 'mock-driver-token', refresh: 'mock-driver-refresh');
-        _log('Driver login OK (mock) username=$username');
-        return AuthResult.success(driver: _currentDriver);
-      }
-
       final response = await _client.post(
         '/auth/driver/login',
         body: {
@@ -164,7 +118,8 @@ class AuthService {
     }
   }
 
-  /// Self-service driver signup (no token returned — user signs in after).
+  // ── Driver Register ────────────────────────────────────────────────────────
+
   Future<AuthResult> registerDriver({
     required String driverId,
     required String password,
@@ -175,11 +130,6 @@ class AuthService {
     String? unitType,
   }) async {
     try {
-      if (AppConfig.useMockApi) {
-        await Future<void>.delayed(const Duration(milliseconds: 800));
-        return AuthResult.success();
-      }
-
       await _client.post(
         '/auth/driver/register',
         auth: false,
@@ -198,12 +148,7 @@ class AuthService {
       );
       return AuthResult.success();
     } on ApiException catch (e) {
-      final msg = e.message.toLowerCase().contains('timed out')
-          ? 'Request timed out. Is the backend running? On a real phone set '
-              'API_BASE_URL to your PC IP, e.g. '
-              'flutter run --dart-define=API_BASE_URL=http://192.168.1.5:8000/api/v1'
-          : e.message;
-      return AuthResult.failure(msg);
+      return AuthResult.failure(e.message);
     } catch (e) {
       return AuthResult.failure('Registration failed. Please try again.');
     }
@@ -213,9 +158,7 @@ class AuthService {
 
   Future<void> logout() async {
     try {
-      if (!AppConfig.useMockApi && isLoggedIn) {
-        await _client.post('/auth/logout');
-      }
+      if (isLoggedIn) await _client.post('/auth/logout');
     } catch (_) {
       // Always clear local state even if server call fails
     } finally {
@@ -228,11 +171,8 @@ class AuthService {
   }
 
   // ── Token Refresh ──────────────────────────────────────────────────────────
-  //  Call this if a request returns 401 Unauthorized.
-  //  Your UI layer can call this and retry the failed request.
 
   Future<bool> refreshToken() async {
-    if (AppConfig.useMockApi) return true;
     try {
       final response = await _client.post(
         '/auth/refresh',
@@ -249,13 +189,8 @@ class AuthService {
 
   // ── Update cached user/driver after profile save ───────────────────────────
 
-  void updateCachedUser(UserModel user) {
-    _currentUser = user;
-  }
-
-  void updateCachedDriver(DriverModel driver) {
-    _currentDriver = driver;
-  }
+  void updateCachedUser(UserModel user) => _currentUser = user;
+  void updateCachedDriver(DriverModel driver) => _currentDriver = driver;
 
   // ── Private helpers ────────────────────────────────────────────────────────
 
@@ -264,8 +199,8 @@ class AuthService {
     final access = data['access_token']?.toString() ??
         data['token']?.toString() ??
         data['access']?.toString();
-    final refresh = data['refresh_token']?.toString() ??
-        data['refresh']?.toString();
+    final refresh =
+        data['refresh_token']?.toString() ?? data['refresh']?.toString();
     if (access != null) {
       _client.setTokens(access: access, refresh: refresh);
     }

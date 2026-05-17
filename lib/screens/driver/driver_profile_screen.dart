@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../models/models.dart';
 import '../../services/auth_service.dart';
@@ -14,12 +17,15 @@ class DriverProfileScreen extends StatefulWidget {
 
 class _DriverProfileScreenState extends State<DriverProfileScreen> {
   bool _isEditing = false;
-  final _fullNameCtrl = TextEditingController();
-  final _driverIdCtrl = TextEditingController();
-  final _contactCtrl = TextEditingController();
-  final _unitIdCtrl = TextEditingController();
-  final _hospitalCtrl = TextEditingController();
-  final _unitTypeCtrl = TextEditingController();
+  final _fullNameCtrl  = TextEditingController();
+  final _driverIdCtrl  = TextEditingController();
+  final _contactCtrl   = TextEditingController();
+  final _unitIdCtrl    = TextEditingController();
+  final _hospitalCtrl  = TextEditingController();
+  final _unitTypeCtrl  = TextEditingController();
+
+  File? _profileImage;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -27,16 +33,15 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     _loadFromSession();
   }
 
-  /// Pre-fill fields with data from the logged-in driver session
   void _loadFromSession() {
     final driver = AuthService.instance.currentDriver;
     if (driver == null) return;
-    _fullNameCtrl.text = driver.fullName;
-    _driverIdCtrl.text = driver.driverId;
-    _contactCtrl.text = driver.contactNumber;
-    _unitIdCtrl.text = driver.unitId ?? '';
-    _hospitalCtrl.text = driver.hospitalName ?? '';
-    _unitTypeCtrl.text = driver.unitType ?? '';
+    _fullNameCtrl.text  = driver.fullName;
+    _driverIdCtrl.text  = driver.driverId;
+    _contactCtrl.text   = driver.contactNumber;
+    _unitIdCtrl.text    = driver.unitId ?? '';
+    _hospitalCtrl.text  = driver.hospitalName ?? '';
+    _unitTypeCtrl.text  = driver.unitType ?? '';
   }
 
   @override
@@ -46,13 +51,85 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     super.dispose();
   }
 
+  // ── Profile picture picker ─────────────────────────────────────────────────
+
+  Future<void> _pickProfileImage() async {
+    HapticFeedback.selectionClick();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                width: 44, height: 5,
+                decoration: BoxDecoration(color: AppTheme.border, borderRadius: BorderRadius.circular(3)),
+              ),
+              const SizedBox(height: 20),
+              Text('Profile Photo', style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: Container(
+                  width: 44, height: 44,
+                  decoration: BoxDecoration(color: AppTheme.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.camera_alt_rounded, color: AppTheme.blue),
+                ),
+                title: Text('Take a photo', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15, color: AppTheme.textDark)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+                  if (picked != null && mounted) setState(() => _profileImage = File(picked.path));
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  width: 44, height: 44,
+                  decoration: BoxDecoration(color: AppTheme.crimson.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.photo_library_rounded, color: AppTheme.crimson),
+                ),
+                title: Text('Choose from gallery', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15, color: AppTheme.textDark)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+                  if (picked != null && mounted) setState(() => _profileImage = File(picked.path));
+                },
+              ),
+              if (_profileImage != null)
+                ListTile(
+                  leading: Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.delete_rounded, color: Colors.red),
+                  ),
+                  title: Text('Remove photo', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 15, color: Colors.red)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() => _profileImage = null);
+                  },
+                ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Save profile ───────────────────────────────────────────────────────────
+
   Future<void> _saveProfile() async {
+    HapticFeedback.mediumImpact();
     final base = AuthService.instance.currentDriver;
     if (base == null) return;
 
-    setState(() {
-      _isEditing = false;
-    });
+    setState(() => _isEditing = false);
 
     final updated = DriverModel(
       id: base.id,
@@ -71,7 +148,11 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     if (result.success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Driver profile saved!', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+          content: Row(children: [
+            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Text('Driver profile saved!', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white)),
+          ]),
           backgroundColor: AppTheme.success,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -82,9 +163,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result.errorMessage ?? 'Save failed.',
-              style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white)),
           backgroundColor: AppTheme.crimson,
           behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -148,8 +230,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [Color(0xFFFF1A35), Color(0xFFD0021B)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                            begin: Alignment.topLeft, end: Alignment.bottomRight,
                           ),
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.40), blurRadius: 16, offset: const Offset(0, 6))],
@@ -171,12 +252,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FC),
+      backgroundColor: const Color(0xFFF5F7FC),
       body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
         slivers: [
           SliverAppBar(
             backgroundColor: Colors.transparent,
-            expandedHeight: 300,
+            expandedHeight: 310,
             pinned: true,
             automaticallyImplyLeading: false,
             elevation: 0,
@@ -187,7 +269,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             flexibleSpace: FlexibleSpaceBar(
               collapseMode: CollapseMode.pin,
               background: Container(
-                decoration: const BoxDecoration(color: AppTheme.textDark),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF0D1B2A), Color(0xFF1A2E47), Color(0xFF0D1B2A)],
+                  ),
+                ),
                 child: Stack(
                   children: [
                     Positioned(right: -60, top: -60,
@@ -212,37 +300,43 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const SizedBox(height: 14),
-                          Stack(
-                            children: [
-                              Container(
-                                width: 100, height: 100,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: LinearGradient(
-                                    colors: [Colors.white.withOpacity(0.16), Colors.white.withOpacity(0.07)],
-                                  ),
-                                  border: Border.all(color: Colors.white.withOpacity(0.26), width: 3),
-                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.32), blurRadius: 24, offset: const Offset(0, 10))],
-                                ),
-                                child: const Icon(Icons.person_rounded, color: Colors.white60, size: 54),
-                              ),
-                              Positioned(
-                                bottom: 2, right: 2,
-                                child: Container(
-                                  width: 34, height: 34,
+                          // ── Tappable avatar with camera badge ──
+                          GestureDetector(
+                            onTap: _pickProfileImage,
+                            child: Stack(
+                              children: [
+                                Container(
+                                  width: 100, height: 100,
                                   decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFFFF1A35), AppTheme.crimson],
-                                      begin: Alignment.topLeft, end: Alignment.bottomRight,
-                                    ),
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: AppTheme.textDark, width: 2.5),
-                                    boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.5), blurRadius: 12)],
+                                    gradient: LinearGradient(
+                                      colors: [Colors.white.withOpacity(0.16), Colors.white.withOpacity(0.07)],
+                                    ),
+                                    border: Border.all(color: Colors.white.withOpacity(0.26), width: 3),
+                                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.32), blurRadius: 24, offset: const Offset(0, 10))],
                                   ),
-                                  child: const Icon(Icons.local_shipping_rounded, color: Colors.white, size: 16),
+                                  child: _profileImage != null
+                                      ? ClipOval(child: Image.file(_profileImage!, fit: BoxFit.cover, width: 100, height: 100))
+                                      : const Icon(Icons.person_rounded, color: Colors.white60, size: 54),
                                 ),
-                              ),
-                            ],
+                                Positioned(
+                                  bottom: 2, right: 2,
+                                  child: Container(
+                                    width: 34, height: 34,
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: [Color(0xFFFF1A35), AppTheme.crimson],
+                                        begin: Alignment.topLeft, end: Alignment.bottomRight,
+                                      ),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: const Color(0xFF0D1B2A), width: 2.5),
+                                      boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.5), blurRadius: 12)],
+                                    ),
+                                    child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 16),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                           const SizedBox(height: 16),
                           Text(
@@ -298,41 +392,69 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
 
                   const SizedBox(height: 30),
 
+                  // ── Driver Information card (same style as user profile) ──
                   _SectionLabel(label: 'Driver Information', icon: Icons.badge_outlined, color: AppTheme.blue),
                   const SizedBox(height: 14),
-                  _InfoCard(
-                    children: [
-                      _ProfileField(icon: Icons.person_outline_rounded, label: 'Full Name',
-                          hint: 'Enter your full name', controller: _fullNameCtrl,
-                          isEditable: _isEditing, onChanged: (_) => setState(() {})),
-                      _Divider(),
-                      _ProfileField(icon: Icons.badge_outlined, label: 'Driver ID',
-                          hint: 'Enter your driver ID', controller: _driverIdCtrl,
-                          isEditable: _isEditing, onChanged: (_) => setState(() {})),
-                      _Divider(),
-                      _ProfileField(icon: Icons.phone_outlined, label: 'Contact',
-                          hint: 'Enter your contact number', controller: _contactCtrl,
-                          isEditable: _isEditing, keyboard: TextInputType.phone),
-                    ],
-                  ),
+                  _ProfileCard(children: [
+                    _ProfileField(
+                      label: 'Full Name',
+                      hint: 'Enter your full name',
+                      icon: Icons.person_outline_rounded,
+                      controller: _fullNameCtrl,
+                      isEditable: _isEditing,
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    _CardDivider(),
+                    _ProfileField(
+                      label: 'Driver ID',
+                      hint: 'Your assigned driver ID',
+                      icon: Icons.badge_outlined,
+                      controller: _driverIdCtrl,
+                      isEditable: false, // driver ID is read-only
+                    ),
+                    _CardDivider(),
+                    _ProfileField(
+                      label: 'Contact Number',
+                      hint: 'Enter your contact number',
+                      icon: Icons.phone_outlined,
+                      controller: _contactCtrl,
+                      keyboard: TextInputType.phone,
+                      isEditable: _isEditing,
+                      isLast: true,
+                    ),
+                  ]),
 
                   const SizedBox(height: 26),
 
+                  // ── Ambulance Unit card ──
                   _SectionLabel(label: 'Ambulance Unit', icon: Icons.local_shipping_rounded, color: AppTheme.crimson),
                   const SizedBox(height: 14),
-                  _InfoCard(
-                    accentColor: AppTheme.crimson,
-                    children: [
-                      _ProfileField(icon: Icons.local_shipping_rounded, label: 'Unit ID',
-                          hint: 'Enter ambulance unit ID', controller: _unitIdCtrl, isEditable: _isEditing),
-                      _Divider(),
-                      _ProfileField(icon: Icons.local_hospital_outlined, label: 'Hospital',
-                          hint: 'Enter assigned hospital', controller: _hospitalCtrl, isEditable: _isEditing),
-                      _Divider(),
-                      _ProfileField(icon: Icons.medical_services_outlined, label: 'Unit Type',
-                          hint: 'ALS / BLS / etc.', controller: _unitTypeCtrl, isEditable: _isEditing),
-                    ],
-                  ),
+                  _ProfileCard(accentColor: AppTheme.crimson, children: [
+                    _ProfileField(
+                      label: 'Unit ID',
+                      hint: 'Enter ambulance unit ID',
+                      icon: Icons.local_shipping_rounded,
+                      controller: _unitIdCtrl,
+                      isEditable: _isEditing,
+                    ),
+                    _CardDivider(),
+                    _ProfileField(
+                      label: 'Assigned Hospital',
+                      hint: 'Enter assigned hospital',
+                      icon: Icons.local_hospital_outlined,
+                      controller: _hospitalCtrl,
+                      isEditable: _isEditing,
+                    ),
+                    _CardDivider(),
+                    _ProfileField(
+                      label: 'Unit Type',
+                      hint: 'ALS / BLS / etc.',
+                      icon: Icons.medical_services_outlined,
+                      controller: _unitTypeCtrl,
+                      isEditable: _isEditing,
+                      isLast: true,
+                    ),
+                  ]),
 
                   const SizedBox(height: 32),
 
@@ -342,10 +464,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       onTap: () => setState(() => _isEditing = true),
                       child: Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 19),
+                        padding: const EdgeInsets.symmetric(vertical: 20),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(22),
+                          borderRadius: BorderRadius.circular(24),
                           border: Border.all(color: AppTheme.blue.withOpacity(0.35), width: 1.5),
                           boxShadow: [BoxShadow(color: AppTheme.blue.withOpacity(0.09), blurRadius: 16, offset: const Offset(0, 6))],
                         ),
@@ -366,14 +488,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       onTap: _saveProfile,
                       child: Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 19),
+                        padding: const EdgeInsets.symmetric(vertical: 20),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [Color(0xFF1E88E5), Color(0xFF1565C0), Color(0xFF0D47A1)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                            begin: Alignment.topLeft, end: Alignment.bottomRight,
                           ),
-                          borderRadius: BorderRadius.circular(22),
+                          borderRadius: BorderRadius.circular(24),
                           boxShadow: [
                             BoxShadow(color: AppTheme.blue.withOpacity(0.45), blurRadius: 26, offset: const Offset(0, 11)),
                           ],
@@ -397,10 +518,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                     onTap: () => _logout(context),
                     child: Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 19),
+                      padding: const EdgeInsets.symmetric(vertical: 20),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(22),
+                        borderRadius: BorderRadius.circular(24),
                         border: Border.all(color: AppTheme.crimson.withOpacity(0.28)),
                         boxShadow: [BoxShadow(color: AppTheme.crimson.withOpacity(0.06), blurRadius: 12)],
                       ),
@@ -428,7 +549,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
 }
 
 // ═══════════════════════════════════════════
-//  LOCAL WIDGETS
+//  SHARED WIDGETS (matching user profile style)
 // ═══════════════════════════════════════════
 
 class _DotGridPainter extends CustomPainter {
@@ -473,12 +594,12 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(children: [
       Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(9),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.09), borderRadius: BorderRadius.circular(13),
-          border: Border.all(color: color.withOpacity(0.18)),
+          color: color.withOpacity(0.10), borderRadius: BorderRadius.circular(13),
+          border: Border.all(color: color.withOpacity(0.2)),
         ),
-        child: Icon(icon, color: color, size: 15),
+        child: Icon(icon, color: color, size: 16),
       ),
       const SizedBox(width: 12),
       Text(label, style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.textDark)),
@@ -486,80 +607,105 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _InfoCard extends StatelessWidget {
+// ── Same card style as user ProfileCard ──────────────────────────────────────
+class _ProfileCard extends StatelessWidget {
   final List<Widget> children; final Color? accentColor;
-  const _InfoCard({required this.children, this.accentColor});
+  const _ProfileCard({required this.children, this.accentColor});
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white, borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: accentColor?.withOpacity(0.16) ?? AppTheme.border),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20, offset: const Offset(0, 8)),
-        ],
+        border: Border.all(color: accentColor?.withOpacity(0.18) ?? AppTheme.border),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20, offset: const Offset(0, 8))],
       ),
       child: Column(children: children),
     );
   }
 }
 
+// ── Same field style as user _ProfileField ───────────────────────────────────
 class _ProfileField extends StatelessWidget {
-  final IconData icon; final String label, hint;
+  final String label, hint;
+  final IconData icon;
   final TextEditingController controller;
-  final TextInputType keyboard; final bool isEditable;
+  final TextInputType keyboard;
+  final bool isEditable;
   final ValueChanged<String>? onChanged;
+  final bool isLast;
+
   const _ProfileField({
-    required this.icon, required this.label, required this.hint,
-    required this.controller, required this.isEditable,
-    this.keyboard = TextInputType.text, this.onChanged,
+    required this.label,
+    required this.hint,
+    required this.icon,
+    required this.controller,
+    required this.isEditable,
+    this.keyboard = TextInputType.text,
+    this.onChanged,
+    this.isLast = false,
   });
+
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
-      child: Row(children: [
-        Container(
-          width: 40, height: 40,
-          decoration: BoxDecoration(
-            color: AppTheme.surfaceLight, borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.border),
-          ),
-          child: Icon(icon, color: AppTheme.textLight, size: 17),
-        ),
-        const SizedBox(width: 15),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: GoogleFonts.outfit(fontSize: 10.5, color: AppTheme.textLight,
-              fontWeight: FontWeight.w600, letterSpacing: 0.3)),
-          const SizedBox(height: 5),
-          TextField(
-            controller: controller, keyboardType: keyboard,
-            readOnly: !isEditable, onChanged: isEditable ? onChanged : null,
-            style: GoogleFonts.outfit(fontSize: 15, color: AppTheme.textDark, fontWeight: FontWeight.w600),
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textLight, fontWeight: FontWeight.w400),
-              border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero,
-            ),
-          ),
-        ])),
-        if (isEditable)
+      padding: EdgeInsets.fromLTRB(18, 20, 18, isLast ? 20 : 10),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
           Container(
-            padding: const EdgeInsets.all(5),
+            width: 42, height: 42,
             decoration: BoxDecoration(
-              color: AppTheme.blue.withOpacity(0.08), borderRadius: BorderRadius.circular(8),
+              color: AppTheme.surfaceLight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.border),
             ),
-            child: const Icon(Icons.edit_outlined, color: AppTheme.blue, size: 14),
+            child: Icon(icon, color: AppTheme.textLight, size: 19),
           ),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: GoogleFonts.outfit(
+              fontSize: 11.5, fontWeight: FontWeight.w600,
+              color: AppTheme.textLight, letterSpacing: 0.3,
+            )),
+            const SizedBox(height: 6),
+            TextField(
+              controller: controller,
+              keyboardType: keyboard,
+              readOnly: !isEditable,
+              onChanged: isEditable ? onChanged : null,
+              style: GoogleFonts.outfit(
+                fontSize: 16,
+                color: isEditable ? AppTheme.textDark : AppTheme.textMid,
+                fontWeight: FontWeight.w600,
+              ),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: GoogleFonts.outfit(fontSize: 16, color: AppTheme.textLight),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ])),
+          if (isEditable)
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: AppTheme.blue.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.edit_outlined, color: AppTheme.blue, size: 14),
+            ),
+        ]),
+        if (!isLast) const SizedBox(height: 10),
       ]),
     );
   }
 }
 
-class _Divider extends StatelessWidget {
+class _CardDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
-      Container(height: 1, color: AppTheme.border, margin: const EdgeInsets.symmetric(horizontal: 18));
+      Container(height: 1, color: AppTheme.border, margin: const EdgeInsets.symmetric(horizontal: 16));
 }
 
 class _MiniStat extends StatelessWidget {
