@@ -565,10 +565,22 @@ class _NonEmergencyBookingScreenState extends State<NonEmergencyBookingScreen> {
       _showConfirmation(context, 'Transport Booked!',
           'Your request is saved and pending dispatch. Reference: ${result.id}');
     } else {
+      // Show the error from the server. The most common cause is a 403
+      // ("Patient access required") which means the session token is missing
+      // or expired. Surface a clear message so the user knows what to do.
+      final msg = result.errorMessage ?? 'Booking failed.';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(result.errorMessage ?? 'Booking failed.', style: GoogleFonts.outfit(fontWeight: FontWeight.w600)),
+        content: Row(children: [
+          const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
+          const SizedBox(width: 10),
+          Expanded(child: Text(msg,
+              style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: Colors.white))),
+        ]),
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppTheme.crimson,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 5),
       ));
     }
   }
@@ -876,15 +888,7 @@ class _StyledFormCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.border),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 16, offset: const Offset(0, 6))],
-      ),
-      child: Column(children: children),
-    );
+    return Column(children: children);
   }
 }
 
@@ -907,50 +911,36 @@ class _FormField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 22, 16, 22),
-          child: Row(
-            children: [
-              Container(
-                width: 44, height: 44,
-                decoration: BoxDecoration(
-                  color: AppTheme.surfaceLight,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppTheme.border),
-                ),
-                child: Icon(icon, color: AppTheme.textLight, size: 20),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label,
-                        style: GoogleFonts.outfit(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppTheme.textLight, letterSpacing: 0.2)),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: controller,
-                      keyboardType: keyboard,
-                      style: GoogleFonts.outfit(fontSize: 16, color: AppTheme.textDark, fontWeight: FontWeight.w500),
-                      decoration: InputDecoration(
-                        hintText: hint,
-                        hintStyle: GoogleFonts.outfit(fontSize: 16, color: AppTheme.textLight, fontWeight: FontWeight.w400),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF2F3F5),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: TextField(
+          controller: controller,
+          keyboardType: keyboard,
+          style: GoogleFonts.outfit(
+            fontSize: 15,
+            color: AppTheme.textDark,
+            fontWeight: FontWeight.w500,
+          ),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: GoogleFonts.outfit(
+              fontSize: 15,
+              color: const Color(0xFFADB5BD),
+              fontWeight: FontWeight.w400,
+            ),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(
+              vertical: 18,
+              horizontal: 18,
+            ),
           ),
         ),
-        if (!isLast)
-          Container(height: 1, color: AppTheme.border, margin: const EdgeInsets.symmetric(horizontal: 16)),
-      ],
+      ),
     );
   }
 }

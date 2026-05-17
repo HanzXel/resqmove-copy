@@ -137,41 +137,31 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                   // Credential fields
                   _SectionLabel(icon: Icons.person_outline_rounded, label: 'Credentials'),
                   const SizedBox(height: 14),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.border),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 22, offset: const Offset(0, 8)),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        _LoginFieldRow(
-                          label: 'Username / Driver ID',
-                          hint: 'Enter your username or ID',
-                          icon: Icons.badge_outlined,
-                          controller: _usernameCtrl,
-                        ),
-                        Container(height: 1, color: AppTheme.border, margin: const EdgeInsets.symmetric(horizontal: 18)),
-                        _LoginFieldRow(
-                          label: 'Password',
-                          hint: 'Enter your password',
-                          icon: Icons.lock_outline_rounded,
-                          controller: _passwordCtrl,
-                          obscure: _obscurePassword,
-                          suffix: GestureDetector(
-                            onTap: () => setState(() => _obscurePassword = !_obscurePassword),
-                            child: Icon(
-                              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                              color: AppTheme.textLight,
-                              size: 19,
-                            ),
+                  Column(
+                    children: [
+                      _LoginFieldRow(
+                        label: 'Username / Driver ID',
+                        hint: 'Username or Driver ID',
+                        icon: Icons.badge_outlined,
+                        controller: _usernameCtrl,
+                      ),
+                      const SizedBox(height: 10),
+                      _LoginFieldRow(
+                        label: 'Password',
+                        hint: 'Password',
+                        icon: Icons.lock_outline_rounded,
+                        controller: _passwordCtrl,
+                        obscure: _obscurePassword,
+                        suffix: GestureDetector(
+                          onTap: () => setState(() => _obscurePassword = !_obscurePassword),
+                          child: Icon(
+                            _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                            color: AppTheme.textLight,
+                            size: 19,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
 
                   const SizedBox(height: 26),
@@ -539,50 +529,40 @@ class _LoginFieldRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
-      child: Row(
-        children: [
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.border),
-            ),
-            child: Icon(icon, color: AppTheme.textLight, size: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF2F3F5),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: TextField(
+          controller: controller,
+          obscureText: obscure,
+          style: GoogleFonts.outfit(
+            fontSize: 15,
+            color: AppTheme.textDark,
+            fontWeight: FontWeight.w500,
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                    style: GoogleFonts.outfit(fontSize: 10.5, fontWeight: FontWeight.w600,
-                        color: AppTheme.textLight, letterSpacing: 0.2)),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: controller,
-                        obscureText: obscure,
-                        style: GoogleFonts.outfit(fontSize: 15, color: AppTheme.textDark, fontWeight: FontWeight.w600),
-                        decoration: InputDecoration(
-                          hintText: hint,
-                          hintStyle: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textLight, fontWeight: FontWeight.w400),
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ),
-                    if (suffix != null) suffix!,
-                  ],
-                ),
-              ],
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: GoogleFonts.outfit(
+              fontSize: 15,
+              color: const Color(0xFFADB5BD),
+              fontWeight: FontWeight.w400,
+            ),
+            suffixIcon: suffix != null
+                ? Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: suffix,
+                  )
+                : null,
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(
+              vertical: 18,
+              horizontal: 18,
             ),
           ),
-        ],
+        ),
       ),
     );
   }

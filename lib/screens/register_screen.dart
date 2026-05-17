@@ -206,14 +206,12 @@ class _RegisterScreenState extends State<RegisterScreen>
                           icon: Icons.badge_outlined,
                           validator: _required,
                         ),
-                        _divider(),
                         // ── Barangay Dropdown ────────────────────────
                         _BarangayDropdownField(
                           value: _selectedBarangay,
                           barangays: _cebuBarangays,
                           onChanged: (v) => setState(() => _selectedBarangay = v),
                         ),
-                        _divider(),
                         _Field(
                           ctrl: _addressCtrl,
                           label: 'Full Address',
@@ -249,7 +247,6 @@ class _RegisterScreenState extends State<RegisterScreen>
                           validator: _requiredPhone,
                           prefix: _PhonePrefix(label: 'PRIMARY'),
                         ),
-                        _divider(),
                         _Field(
                           ctrl: _mobile2Ctrl,
                           label: 'Mobile No. 2 — Emergency Contact',
@@ -534,12 +531,6 @@ class _RegisterScreenState extends State<RegisterScreen>
     if (v.trim().length < 7) return 'Enter a valid phone number';
     return null;
   }
-
-  Widget _divider() => Container(
-        height: 1,
-        color: AppTheme.border,
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-      );
 }
 
 // ─────────────────────────────────────────────
@@ -560,59 +551,34 @@ class _BarangayDropdownField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.border),
-            ),
-            child: const Icon(Icons.location_city_outlined,
-                color: AppTheme.textLight, size: 19),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF2F3F5),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: value,
+            isExpanded: true,
+            hint: Text('Select your barangay',
+                style: GoogleFonts.outfit(
+                    fontSize: 15, color: const Color(0xFFADB5BD))),
+            icon: const Icon(Icons.expand_more_rounded,
+                color: Color(0xFFADB5BD), size: 20),
+            style: GoogleFonts.outfit(
+                fontSize: 15,
+                color: AppTheme.textDark,
+                fontWeight: FontWeight.w500),
+            items: barangays
+                .map((b) => DropdownMenuItem(
+                    value: b,
+                    child: Text(b, overflow: TextOverflow.ellipsis)))
+                .toList(),
+            onChanged: onChanged,
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Barangay',
-                    style: GoogleFonts.outfit(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textLight,
-                      letterSpacing: 0.2,
-                    )),
-                const SizedBox(height: 4),
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: value,
-                    isExpanded: true,
-                    isDense: true,
-                    hint: Text('Select your barangay',
-                        style: GoogleFonts.outfit(
-                            fontSize: 15, color: AppTheme.textLight)),
-                    icon: const Icon(Icons.expand_more_rounded,
-                        color: AppTheme.textLight, size: 18),
-                    style: GoogleFonts.outfit(
-                        fontSize: 15,
-                        color: AppTheme.textDark,
-                        fontWeight: FontWeight.w600),
-                    items: barangays
-                        .map((b) => DropdownMenuItem(
-                            value: b,
-                            child: Text(b, overflow: TextOverflow.ellipsis)))
-                        .toList(),
-                    onChanged: onChanged,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -660,22 +626,11 @@ class _FormCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: accentColor?.withOpacity(0.18) ?? AppTheme.border,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(children: children),
+    return Column(
+      children: children
+          .expand((child) => [child, const SizedBox(height: 10)])
+          .toList()
+        ..removeLast(),
     );
   }
 }
@@ -706,65 +661,42 @@ class _Field extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(18, 18, 18, isLast ? 18 : 8),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 42, height: 42,
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceLight,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.border),
-              ),
-              child: Icon(icon, color: AppTheme.textLight, size: 19),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      Expanded(
-                        child: Text(label,
-                            style: GoogleFonts.outfit(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.textLight,
-                              letterSpacing: 0.2,
-                            )),
-                      ),
-                      if (prefix != null) prefix!,
-                    ]),
-                    const SizedBox(height: 6),
-                    TextFormField(
-                      controller: ctrl,
-                      keyboardType: keyboard,
-                      maxLines: maxLines,
-                      validator: validator,
-                      style: GoogleFonts.outfit(
-                        fontSize: 15,
-                        color: AppTheme.textDark,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: hint,
-                        hintStyle: GoogleFonts.outfit(
-                            fontSize: 15, color: AppTheme.textLight),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                        errorStyle: GoogleFonts.outfit(
-                            fontSize: 11, color: AppTheme.crimson),
-                      ),
-                    ),
-                  ]),
-            ),
-          ],
+      padding: EdgeInsets.fromLTRB(16, isLast ? 8 : 8, 16, isLast ? 16 : 0),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF2F3F5),
+          borderRadius: BorderRadius.circular(14),
         ),
-        if (!isLast) const SizedBox(height: 8),
-      ]),
+        child: TextFormField(
+          controller: ctrl,
+          keyboardType: keyboard,
+          maxLines: maxLines,
+          validator: validator,
+          style: GoogleFonts.outfit(
+            fontSize: 15,
+            color: AppTheme.textDark,
+            fontWeight: FontWeight.w500,
+          ),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: GoogleFonts.outfit(
+              fontSize: 15,
+              color: const Color(0xFFADB5BD),
+              fontWeight: FontWeight.w400,
+            ),
+            suffixIcon: prefix,
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(
+              vertical: 18,
+              horizontal: 18,
+            ),
+            errorStyle: GoogleFonts.outfit(
+              fontSize: 11,
+              color: AppTheme.crimson,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

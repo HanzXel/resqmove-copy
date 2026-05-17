@@ -16,7 +16,9 @@ router.use(requireAuth);
 
 router.use((req, res, next) => {
   if (req.user.role !== 'patient') {
-    return res.status(403).json({ message: 'Patient access required.' });
+    return res.status(403).json({
+      message: 'This feature is only available to patient accounts. Please log in with a patient account to book transport.',
+    });
   }
   next();
 });

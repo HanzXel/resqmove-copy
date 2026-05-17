@@ -4,6 +4,7 @@
 //
 //  GET    /api/v1/driver/requests
 //  GET    /api/v1/driver/active-trip
+//  GET    /api/v1/driver/trips          ← [BUG FIX] was missing; caused 404
 //  PATCH  /api/v1/driver/status
 //  POST   /api/v1/driver/requests/:id/accept
 //  POST   /api/v1/driver/requests/:id/decline
@@ -48,6 +49,35 @@ router.get('/active-trip', (req, res) => {
 
   if (!request) return res.json({ request: null });
   return res.json({ request: requestToJson(request) });
+});
+
+// ── Get driver's trip history (completed + cancelled) ─────────────────────────
+// [BUG FIX] This route was completely missing — the app was calling
+// GET /api/v1/driver/trips but only POST /api/v1/driver/trips/:id/complete
+// existed, causing the "Route GET /api/v1/driver/trips not found" 404 error.
+router.get('/trips', (req, res) => {
+  const { status } = req.query;
+  const allowedStatuses = ['completed', 'cancelled'];
+
+  // Parse comma-separated status filter, default to both
+  const requested = status
+    ? status.split(',').map(s => s.trim()).filter(s => allowedStatuses.includes(s))
+    : allowedStatuses;
+
+  if (requested.length === 0) {
+    return res.status(400).json({ message: 'Invalid status filter.' });
+  }
+
+  const placeholders = requested.map(() => '?').join(', ');
+  const rows = db.prepare(`
+    SELECT * FROM requests
+    WHERE assigned_driver_id = ?
+      AND status IN (${placeholders})
+    ORDER BY
+      COALESCE(completed_at, accepted_at, requested_at) DESC
+  `).all(req.user.id, ...requested);
+
+  return res.json({ trips: rows.map(requestToJson) });
 });
 
 // ── Update driver availability status ─────────────────────────────────────────

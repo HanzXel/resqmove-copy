@@ -39,10 +39,10 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
     _patientPos = _parsePatientLatLng();
     _routePolyline = [_driverPos, _patientPos];
     unawaited(_bootstrapNav());
-    if (!AppConfig.useMockApi) {
-      _locationTimer = Timer.periodic(const Duration(seconds: 10), (_) => _pushGps());
-      unawaited(_pushGps());
-    }
+    // [BUG FIX] In mock mode we still start a GPS timer so ETA/distance
+    // update when the device moves, but we skip the server push.
+    _locationTimer = Timer.periodic(const Duration(seconds: 10), (_) => _pushGps());
+    unawaited(_pushGps());
   }
 
   Future<void> _bootstrapNav() async {
@@ -127,24 +127,31 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
       if (mounted) {
         setState(() {
           _driverPos = LatLng(pos.latitude, pos.longitude);
+          // [BUG FIX] Recompute distance/ETA every GPS tick in both mock and
+          // live mode so the overlays are never stuck at '--'.
+          _applyStraightLineMetrics();
         });
       }
-      await TrackingService.instance.pushDriverLocation(
-        latitude: pos.latitude,
-        longitude: pos.longitude,
-        activeRequestId: id,
-      );
-      _scheduleRouteRefresh();
+      // Only push to server when not using mock API
+      if (!AppConfig.useMockApi) {
+        await TrackingService.instance.pushDriverLocation(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          activeRequestId: id,
+        );
+        _scheduleRouteRefresh();
+      }
     } catch (_) {}
   }
 
   Future<void> _loadRoute() async {
     if (AppConfig.useMockApi) {
+      // [BUG FIX] Mock mode now shows a real straight-line ETA instead of '--'.
+      // A 40 km/h average speed is used as a reasonable city-driving estimate.
       if (mounted) {
         setState(() {
           _routePolyline = [_driverPos, _patientPos];
-          _applyStraightLineDistance();
-          _etaLabel = '--';
+          _applyStraightLineMetrics();
         });
       }
       return;
@@ -166,16 +173,20 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
       setState(() {
         _routingLoading = false;
         _routePolyline = [_driverPos, _patientPos];
-        _applyStraightLineDistance();
-        _etaLabel = '--';
+        // [BUG FIX] Fall back to straight-line estimate instead of '--'
+        _applyStraightLineMetrics();
       });
     }
   }
 
-  void _applyStraightLineDistance() {
+  /// Computes straight-line distance AND an ETA estimate (40 km/h average).
+  void _applyStraightLineMetrics() {
     const d = Distance();
     final meters = d.as(LengthUnit.Meter, _driverPos, _patientPos);
     _distLabel = _formatDistanceKm(meters / 1000.0);
+    // 40 km/h = 11.11 m/s — reasonable city speed for an ambulance estimate
+    const double avgSpeedMps = 40.0 / 3.6;
+    _etaLabel = _formatDriveEta(meters / avgSpeedMps);
   }
 
   String _formatDistanceKm(double km) {

@@ -684,22 +684,19 @@ class _FieldCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppTheme.border),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 8))],
-      ),
-      child: Column(children: children),
+    return Column(
+      children: children
+          .where((w) => w is! _FieldDivider)
+          .expand((child) => [child, const SizedBox(height: 10)])
+          .toList()
+        ..removeLast(),
     );
   }
 }
 
 class _FieldDivider extends StatelessWidget {
   @override
-  Widget build(BuildContext context) =>
-      Container(height: 1, color: AppTheme.border, margin: const EdgeInsets.symmetric(horizontal: 18));
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _RegField extends StatelessWidget {
@@ -719,47 +716,39 @@ class _RegField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(18, 18, 18, isLast ? 18 : 10),
-      child: Row(
-        children: [
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.border),
-            ),
-            child: Icon(icon, color: AppTheme.textLight, size: 18),
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F3F5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: TextField(
+        controller: controller,
+        obscureText: obscure,
+        keyboardType: keyboard,
+        style: GoogleFonts.outfit(
+          fontSize: 15,
+          color: AppTheme.textDark,
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: GoogleFonts.outfit(
+            fontSize: 15,
+            color: const Color(0xFFADB5BD),
+            fontWeight: FontWeight.w400,
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: GoogleFonts.outfit(fontSize: 10.5, fontWeight: FontWeight.w600,
-                    color: AppTheme.textLight, letterSpacing: 0.2)),
-                const SizedBox(height: 5),
-                Row(children: [
-                  Expanded(
-                    child: TextField(
-                      controller: controller,
-                      obscureText: obscure,
-                      keyboardType: keyboard,
-                      style: GoogleFonts.outfit(fontSize: 15, color: AppTheme.textDark, fontWeight: FontWeight.w600),
-                      decoration: InputDecoration(
-                        hintText: hint,
-                        hintStyle: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textLight),
-                        border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ),
-                  if (suffix != null) suffix!,
-                ]),
-              ],
-            ),
+          suffixIcon: suffix != null
+              ? Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: suffix,
+                )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            vertical: 18,
+            horizontal: 18,
           ),
-        ],
+        ),
       ),
     );
   }

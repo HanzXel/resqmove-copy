@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'dart:async';
+import 'dart:math' as math;
 
 import '../../config/app_config.dart';
 import '../../theme/app_theme.dart';
@@ -24,6 +26,14 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   int _currentStatus = 0;
   Timer? _locationTimer;
 
+  // [BUG FIX] Live ETA / distance / speed — were hardcoded '0'
+  String _etaLabel = '--';
+  String _distLabel = '--';
+  String _speedLabel = '--';
+  LatLng? _driverPos;
+  LatLng? _patientPos;
+  double _lastSpeedMps = 0;
+
   final List<Map<String, dynamic>> _statusSteps = [
     {'label': 'En Route to Patient', 'icon': Icons.airport_shuttle_rounded, 'color': AppTheme.warning},
     {'label': 'Patient Picked Up', 'icon': Icons.person_add_rounded, 'color': AppTheme.blue},
@@ -36,31 +46,44 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   @override
   void initState() {
     super.initState();
+    _patientPos = _parsePatientLatLng();
     _startLocationTracking();
+  }
+
+  /// Parse patient coordinates from the request payload.
+  LatLng? _parsePatientLatLng() {
+    final pl = widget.request['pickup_location'];
+    if (pl is Map) {
+      final lat = pl['latitude'];
+      final lng = pl['longitude'];
+      if (lat is num && lng is num) return LatLng(lat.toDouble(), lng.toDouble());
+    }
+    return null;
   }
 
   Future<void> _startLocationTracking() async {
     final id = _requestId;
-    if (AppConfig.useMockApi) return;
 
-    // Initialize background service with a location-push callback
-    await BackgroundLocationService.instance.init(
-      onLocation: (data) {
-        TrackingService.instance.pushDriverLocation(
-          latitude: (data['latitude'] as num).toDouble(),
-          longitude: (data['longitude'] as num).toDouble(),
-          activeRequestId: data['request_id']?.toString(),
-        );
-      },
-    );
+    if (!AppConfig.useMockApi) {
+      // Initialize background service with a location-push callback
+      await BackgroundLocationService.instance.init(
+        onLocation: (data) {
+          TrackingService.instance.pushDriverLocation(
+            latitude: (data['latitude'] as num).toDouble(),
+            longitude: (data['longitude'] as num).toDouble(),
+            activeRequestId: data['request_id']?.toString(),
+          );
+        },
+      );
 
-    if (id != null && id.isNotEmpty) {
-      await BackgroundLocationService.instance.start(requestId: id);
+      if (id != null && id.isNotEmpty) {
+        await BackgroundLocationService.instance.start(requestId: id);
+      }
     }
 
-    // Foreground fallback: also push every 12 s when app is open
-    _locationTimer = Timer.periodic(const Duration(seconds: 12), (_) => _pushGps());
-    unawaited(_pushGps());
+    // Foreground GPS refresh every 8 s (reduced from 12 for better live accuracy)
+    _locationTimer = Timer.periodic(const Duration(seconds: 8), (_) => _pushGps());
+    unawaited(_pushGps()); // immediate first read
   }
 
   Future<void> _pushGps() async {
@@ -80,12 +103,62 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           timeLimit: Duration(seconds: 8),
         ),
       );
-      await TrackingService.instance.pushDriverLocation(
-        latitude: pos.latitude,
-        longitude: pos.longitude,
-        activeRequestId: id,
-      );
+
+      final newDriverPos = LatLng(pos.latitude, pos.longitude);
+      _lastSpeedMps = pos.speed < 0 ? 0 : pos.speed; // negative = unavailable
+
+      if (mounted) {
+        setState(() {
+          _driverPos = newDriverPos;
+          _updateLiveMetrics();
+        });
+      }
+
+      if (!AppConfig.useMockApi) {
+        await TrackingService.instance.pushDriverLocation(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          activeRequestId: id,
+        );
+      }
     } catch (_) {}
+  }
+
+  /// Recomputes ETA / distance / speed labels from current GPS data.
+  void _updateLiveMetrics() {
+    final driver = _driverPos;
+    final patient = _patientPos;
+
+    // Speed in km/h
+    final speedKmh = _lastSpeedMps * 3.6;
+    _speedLabel = '${speedKmh.round()} km/h';
+
+    if (driver == null || patient == null) return;
+
+    // Straight-line distance using the Haversine formula
+    const distCalc = Distance();
+    final meters = distCalc.as(LengthUnit.Meter, driver, patient);
+
+    if (meters < 1000) {
+      _distLabel = '${meters.round()} m';
+    } else {
+      final km = meters / 1000.0;
+      _distLabel = '${km.toStringAsFixed(km < 10 ? 1 : 0)} km';
+    }
+
+    // ETA: distance ÷ speed; fall back to 40 km/h average if GPS speed is 0
+    final effectiveSpeedMps = _lastSpeedMps > 0.5 ? _lastSpeedMps : (40.0 / 3.6);
+    final etaSecs = meters / effectiveSpeedMps;
+    final etaMins = (etaSecs / 60).ceil();
+    if (etaMins < 1) {
+      _etaLabel = '<1 min';
+    } else if (etaMins < 60) {
+      _etaLabel = '$etaMins min';
+    } else {
+      final h = etaMins ~/ 60;
+      final m = etaMins % 60;
+      _etaLabel = m > 0 ? '${h}h ${m}m' : '${h}h';
+    }
   }
 
   @override
@@ -258,7 +331,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
 
             const SizedBox(height: 18),
 
-            // ── ETA Row ──
+            // ── ETA Row — [BUG FIX] now shows live computed values ──
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
@@ -269,11 +342,11 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
               ),
               child: Row(
                 children: [
-                  _ETAItem(icon: Icons.timer_outlined, label: 'ETA', value: '0', color: AppTheme.warning),
+                  _ETAItem(icon: Icons.timer_outlined, label: 'ETA', value: _etaLabel, color: AppTheme.warning),
                   _VertDivider(),
-                  _ETAItem(icon: Icons.near_me_rounded, label: 'Distance', value: '0', color: AppTheme.blue),
+                  _ETAItem(icon: Icons.near_me_rounded, label: 'Distance', value: _distLabel, color: AppTheme.blue),
                   _VertDivider(),
-                  _ETAItem(icon: Icons.speed_rounded, label: 'Speed', value: '0', color: AppTheme.success),
+                  _ETAItem(icon: Icons.speed_rounded, label: 'Speed', value: _speedLabel, color: AppTheme.success),
                 ],
               ),
             ),

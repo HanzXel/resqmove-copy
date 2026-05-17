@@ -385,24 +385,17 @@ class _BookingScreenState extends State<BookingScreen>
   }
 
   Widget _buildPatientFields() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.border),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 16, offset: const Offset(0, 6))],
-      ),
-      child: Column(
-        children: [
-          _FieldRow(hint: 'Full name', icon: Icons.person_outline_rounded,
-              controller: _nameCtrl, errorText: _nameError,
-              onChanged: (_) => setState(() => _nameError = null)),
-          Container(height: 1, color: AppTheme.border, margin: const EdgeInsets.symmetric(horizontal: 16)),
-          _FieldRow(hint: 'Contact number', icon: Icons.phone_outlined,
-              controller: _contactCtrl, keyboardType: TextInputType.phone,
-              errorText: _contactError, onChanged: (_) => setState(() => _contactError = null)),
-        ],
-      ),
+    return Column(
+      children: [
+        _FieldRow(hint: 'Full name', icon: Icons.person_outline_rounded,
+            controller: _nameCtrl, errorText: _nameError,
+            onChanged: (_) => setState(() => _nameError = null)),
+        _FieldRow(hint: 'Contact number', icon: Icons.phone_outlined,
+            controller: _contactCtrl, keyboardType: TextInputType.phone,
+            errorText: _contactError,
+            onChanged: (_) => setState(() => _contactError = null),
+            isLast: true),
+      ],
     );
   }
 
@@ -490,22 +483,14 @@ class _BookingScreenState extends State<BookingScreen>
   Widget _buildLocationField() {
     return Column(
       children: [
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: _locationError != null ? AppTheme.crimson.withOpacity(0.5) : AppTheme.border),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
-          ),
-          child: _FieldRow(
-            hint: 'Your current location',
-            icon: Icons.location_on_outlined,
-            controller: _locationCtrl,
-            enabled: !_useGps,
-            errorText: _locationError,
-            onChanged: (_) => setState(() => _locationError = null),
-            isLast: true,
-          ),
+        _FieldRow(
+          hint: 'Your current location',
+          icon: Icons.location_on_outlined,
+          controller: _locationCtrl,
+          enabled: !_useGps,
+          errorText: _locationError,
+          onChanged: (_) => setState(() => _locationError = null),
+          isLast: true,
         ),
         const SizedBox(height: 10),
         GestureDetector(
@@ -606,72 +591,84 @@ class _BookingScreenState extends State<BookingScreen>
 //  SHARED FIELD WIDGET
 // ─────────────────────────────────────────────
 class _FieldRow extends StatelessWidget {
-  final String hint;
-  final IconData icon;
-  final TextEditingController controller;
-  final TextInputType? keyboardType;
-  final String? errorText;
-  final ValueChanged<String>? onChanged;
-  final bool enabled;
-  final bool isLast;
+final String hint;
+final IconData icon;
+final TextEditingController controller;
+final TextInputType? keyboardType;
+final String? errorText;
+final ValueChanged<String>? onChanged;
+final bool enabled;
+final bool isLast;
 
-  const _FieldRow({
-    required this.hint,
-    required this.icon,
-    required this.controller,
-    this.keyboardType,
-    this.errorText,
-    this.onChanged,
-    this.enabled = true,
-    this.isLast = false,
-  });
+const _FieldRow({
+required this.hint,
+required this.icon,
+required this.controller,
+this.keyboardType,
+this.errorText,
+this.onChanged,
+this.enabled = true,
+this.isLast = false,
+});
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 18, 16, isLast ? 18 : 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: AppTheme.surfaceLight,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.border),
-                ),
-                child: Icon(icon, color: AppTheme.textLight, size: 17),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  keyboardType: keyboardType,
-                  enabled: enabled,
-                  onChanged: onChanged,
-                  style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textDark, fontWeight: FontWeight.w500),
-                  decoration: InputDecoration(
-                    hintText: hint,
-                    hintStyle: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textLight, fontWeight: FontWeight.w400),
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (errorText != null) ...[
-            const SizedBox(height: 6),
-            Row(children: [
-              const Icon(Icons.info_outline_rounded, size: 13, color: AppTheme.crimson),
-              const SizedBox(width: 5),
-              Text(errorText!, style: GoogleFonts.outfit(fontSize: 11, color: AppTheme.crimson, fontWeight: FontWeight.w500)),
-            ]),
+@override
+Widget build(BuildContext context) {
+return Padding(
+padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Container(
+decoration: BoxDecoration(
+color: enabled
+  ? const Color(0xFFF2F3F5)
+  : const Color(0xFFEBECEE),
+borderRadius: BorderRadius.circular(14),
+border: Border.all(
+color: errorText != null
+    ? AppTheme.crimson.withOpacity(0.5)
+    : Colors.transparent,
+),
+),
+child: TextField(
+controller: controller,
+keyboardType: keyboardType,
+enabled: enabled,
+onChanged: onChanged,
+style: GoogleFonts.outfit(
+fontSize: 15,
+color: AppTheme.textDark,
+fontWeight: FontWeight.w500,
+),
+decoration: InputDecoration(
+hintText: hint,
+hintStyle: GoogleFonts.outfit(
+fontSize: 15,
+  color: const Color(0xFFADB5BD),
+    fontWeight: FontWeight.w400,
+    ),
+      border: InputBorder.none,
+      contentPadding: const EdgeInsets.symmetric(
+        vertical: 18, horizontal: 18),
+  ),
+),
+),
+if (errorText != null) ...[  
+const SizedBox(height: 5),
+  Padding(
+    padding: const EdgeInsets.only(left: 4),
+      child: Row(children: [
+          Icon(Icons.info_outline_rounded,
+                size: 12, color: AppTheme.crimson),
+              const SizedBox(width: 4),
+                Text(errorText!,
+                    style: GoogleFonts.outfit(
+                        fontSize: 11,
+                        color: AppTheme.crimson,
+                        fontWeight: FontWeight.w500)),
+              ]),
+            ),
           ],
-          if (!isLast) const SizedBox(height: 8),
         ],
       ),
     );

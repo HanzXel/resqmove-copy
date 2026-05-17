@@ -173,37 +173,44 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
                       validator: _phoneValidator,
                       autofillHints: const [AutofillHints.telephoneNumber],
                       style: GoogleFonts.outfit(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
                         color: AppTheme.textDark,
                       ),
                       decoration: InputDecoration(
                         hintText: '09XX XXX XXXX',
-                        hintStyle: GoogleFonts.outfit(color: AppTheme.textLight),
+                        hintStyle: GoogleFonts.outfit(
+                          color: const Color(0xFFADB5BD),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w400,
+                        ),
                         filled: true,
-                        fillColor: Colors.white,
+                        fillColor: const Color(0xFFF2F3F5),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: const BorderSide(color: AppTheme.border),
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: const BorderSide(color: AppTheme.border),
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide:
-                              const BorderSide(color: AppTheme.blue, width: 1.5),
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                              color: AppTheme.blue, width: 1.5),
                         ),
                         errorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(14),
                           borderSide: BorderSide(color: AppTheme.crimson),
                         ),
-                        prefixIcon: const Icon(Icons.phone_android_rounded,
-                            color: AppTheme.textLight),
+                        focusedErrorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                              color: AppTheme.crimson, width: 1.5),
+                        ),
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 16,
+                          horizontal: 18,
+                          vertical: 18,
                         ),
                       ),
                     ),
