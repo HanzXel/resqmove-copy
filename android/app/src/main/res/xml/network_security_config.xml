@@ -1,11 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cleartext HTTP is allowed for local dev (LAN IP + HTTP backend).
-     For Play Store release with HTTPS only, set cleartextTrafficPermitted="false"
-     or remove this file and set android:usesCleartextTraffic="false" on <application>. -->
+<!--
+  Cleartext (plain HTTP) is only permitted for private LAN addresses used
+  during local development (e.g. 192.168.x.x, 10.x.x.x, 172.16-31.x.x).
+  All other traffic — including any public backend — is HTTPS only.
+  When you deploy to a real server, point API_BASE_URL to an https:// address
+  and this config will automatically enforce encryption for it.
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <!-- Public internet: HTTPS only -->
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <!-- Local development: allow plain HTTP on private LAN ranges -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <!-- Private class A: 10.x.x.x -->
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <!-- Private class C: 192.168.x.x — covers most home/office Wi-Fi -->
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">192.168.1.0</domain>
+        <domain includeSubdomains="true">192.168.2.0</domain>
+        <domain includeSubdomains="true">192.168.100.0</domain>
+    </domain-config>
 </network-security-config>

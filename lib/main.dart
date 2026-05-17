@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/services_screen.dart';
@@ -19,6 +20,15 @@ import 'package:permission_handler/permission_handler.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialise Firebase — gracefully skipped if google-services.json is a
+  // placeholder (NotificationService handles the same fallback internally).
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('[main] Firebase.initializeApp skipped: $e');
+  }
+
   await Permission.notification.request();
   await ApiClient.instance.restoreSession();
   await NotificationService.instance.init();

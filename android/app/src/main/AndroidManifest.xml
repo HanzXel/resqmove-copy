@@ -49,14 +49,8 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT"/>
             </intent-filter>
         </service>
-
-        <!-- Background Location Service -->
-        <service
-    android:name="id.flutter.flutter_background_service.BackgroundService"
-    android:foregroundServiceType="location"
-    android:exported="false"
-    tools:replace="android:exported"/>
     </application>
+
     <queries>
         <!-- url_launcher: tel, sms, https, http -->
         <intent>
