@@ -77,7 +77,7 @@ router.post('/driver/register', (req, res) => {
   const hash = bcrypt.hashSync(password, 10);
   db.prepare(`
     INSERT INTO drivers (id, full_name, driver_id, password_hash, contact_number, unit_id, hospital_name, unit_type, status, approved)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offline', 0)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offline', 1)
   `).run(
     id,
     full_name,
@@ -92,7 +92,7 @@ router.post('/driver/register', (req, res) => {
   return res.status(201).json({
     success: true,
     message:
-      'Account created and is pending approval. An administrator must approve your account before you can sign in.',
+      'Account created successfully. You can now sign in.',
   });
 });
 
@@ -113,12 +113,12 @@ router.post('/driver/login', (req, res) => {
     return res.status(401).json({ message: 'Invalid driver ID or password.' });
   }
 
-  if (Number(driver.approved) !== 1) {
-    return res.status(403).json({
-      message:
-        'Your driver account is pending approval. Contact dispatch or an administrator.',
-    });
-  }
+  // Removed pending approval check — all registered drivers are auto-approved
+  // if (Number(driver.approved) !== 1) {
+  //   return res.status(403).json({
+  //     message: 'Your driver account is pending approval.',
+  //   });
+  // }
 
   const token = jwt.sign(
     { id: driver.id, role: 'driver' },

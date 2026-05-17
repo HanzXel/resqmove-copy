@@ -1,7 +1,9 @@
 # ResQMove - One-Click Release APK Builder
 # Run from project root: .\build_apk.ps1
+# For production: .\build_apk.ps1 -ApiUrl "https://resqmove-backend.onrender.com/api/v1"
 
 param(
+    [string]$ApiUrl = "",
     [string]$HotlineNumber = "+63322661355",
     [string]$HotlineDisplay = "(032) 266-1355"
 )
@@ -29,7 +31,6 @@ if (-not (Test-Path $keystorePath)) {
     Write-Host "Keystore created at $keystorePath" -ForegroundColor Green
     Write-Host ""
     Write-Host "WARNING - BACK UP YOUR KEYSTORE NOW" -ForegroundColor Red
-    Write-Host "If you lose this file you cannot publish updates to the same app." -ForegroundColor Yellow
     Write-Host "  File:     $(Resolve-Path $keystorePath)" -ForegroundColor White
     Write-Host "  Password: $keystorePassword" -ForegroundColor White
     Write-Host "  Alias:    $keyAlias" -ForegroundColor White
@@ -46,39 +47,34 @@ $env:KEY_ALIAS         = $keyAlias
 $env:KEY_PASSWORD      = $keyPassword
 Write-Host "[2/4] Keystore env vars set." -ForegroundColor Green
 
-# Step 3: Find local IP and confirm
-Write-Host "[3/4] Detecting local IP address..." -ForegroundColor Yellow
-$ip = (Get-NetIPAddress -AddressFamily IPv4 |
-       Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.*" } |
-       Select-Object -First 1).IPAddress
+# Step 3: Determine API URL
+Write-Host "[3/4] Setting API URL..." -ForegroundColor Yellow
 
-if (-not $ip) {
-    Write-Host "Could not auto-detect IP. Using 10.0.2.2 (emulator only)." -ForegroundColor Red
-    $ip = "10.0.2.2"
+if ($ApiUrl -ne "") {
+    Write-Host "Using provided URL: $ApiUrl" -ForegroundColor Green
 } else {
-    Write-Host "Detected IP: $ip" -ForegroundColor Green
-}
-
-$apiUrl = "http://${ip}:8000/api/v1"
-Write-Host ""
-Write-Host "The APK will be built pointing to:" -ForegroundColor Yellow
-Write-Host "  $apiUrl" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Make sure your phone and PC are on the same Wi-Fi network." -ForegroundColor Yellow
-Write-Host "If this IP looks wrong, press Ctrl+C and rebuild with:" -ForegroundColor Yellow
-Write-Host "  flutter build apk --release --dart-define=API_BASE_URL=http://YOUR_IP:8000/api/v1" -ForegroundColor White
-Write-Host ""
-$confirm = Read-Host "Continue with this IP? (Y/n)"
-if ($confirm -eq "n" -or $confirm -eq "N") {
-    Write-Host "Cancelled. Re-run and use the correct IP." -ForegroundColor Red
-    exit 0
+    $ip = (Get-NetIPAddress -AddressFamily IPv4 |
+           Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.*" } |
+           Select-Object -First 1).IPAddress
+    if (-not $ip) { $ip = "10.0.2.2" }
+    $ApiUrl = "http://${ip}:8000/api/v1"
+    Write-Host "Using local IP: $ApiUrl" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Tip: For a production build use:" -ForegroundColor DarkGray
+    Write-Host "  .\build_apk.ps1 -ApiUrl https://resqmove-backend.onrender.com/api/v1" -ForegroundColor DarkGray
+    Write-Host ""
+    $confirm = Read-Host "Continue with local IP? (Y/n)"
+    if ($confirm -eq "n" -or $confirm -eq "N") {
+        Write-Host "Cancelled." -ForegroundColor Red
+        exit 0
+    }
 }
 
 # Step 4: Build APK
 Write-Host "[4/4] Building release APK (this takes 2-5 minutes)..." -ForegroundColor Yellow
 
 flutter build apk --release `
-    "--dart-define=API_BASE_URL=$apiUrl" `
+    "--dart-define=API_BASE_URL=$ApiUrl" `
     "--dart-define=HOTLINE_NUMBER=$HotlineNumber" `
     "--dart-define=HOTLINE_DISPLAY=$HotlineDisplay"
 
@@ -90,12 +86,7 @@ if (Test-Path $apkPath) {
     Write-Host "BUILD SUCCESSFUL!" -ForegroundColor Green
     Write-Host "APK: $apkPath ($size MB)" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Before installing on phone:" -ForegroundColor Yellow
-    Write-Host "  1. Make sure phone and PC are on the same Wi-Fi network"
-    Write-Host "  2. Start the backend:  .\start_backend.ps1"
-    Write-Host "  3. Enable Install unknown apps on your Android phone"
-    Write-Host "  4. Transfer and install: $apkPath"
-    Write-Host ""
+    Write-Host "Transfer to phone via Telegram, Google Drive, or USB." -ForegroundColor Yellow
 } else {
     Write-Host "Build may have failed. Check the output above." -ForegroundColor Red
 }

@@ -38,6 +38,17 @@ function resolveJwtSecret() {
 const JWT_SECRET = resolveJwtSecret();
 module.exports.JWT_SECRET = JWT_SECRET;
 
+// ── [FIX 3] Auto-approve all existing pending drivers on startup ──────────────
+try {
+  const { db } = require('./database');
+  const result = db.prepare("UPDATE drivers SET approved = 1 WHERE approved = 0").run();
+  if (result.changes > 0) {
+    console.log(`✅  Auto-approved ${result.changes} pending driver account(s).`);
+  }
+} catch (e) {
+  console.warn('⚠️  Could not auto-approve drivers:', e.message);
+}
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
@@ -54,6 +65,15 @@ app.use('/api/v1/events',    require('./routes/events'));    // FIX: event stand
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', app: 'ResQMove API', time: new Date().toISOString() });
+});
+
+// ── APK Download ───────────────────────────────────────────────────────────────
+app.get('/download', (req, res) => {
+  const path = require('path');
+  const apkPath = path.join(__dirname, 'resqmove.apk');
+  res.download(apkPath, 'ResQMove.apk', (err) => {
+    if (err) res.status(404).json({ message: 'APK not found.' });
+  });
 });
 
 // ── 404 catch-all ─────────────────────────────────────────────────────────────

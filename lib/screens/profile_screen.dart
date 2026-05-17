@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../services/profile_service.dart';
 import '../services/auth_service.dart';
+import '../services/registration_service.dart';
 import '../models/models.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -66,16 +67,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (result.success && result.data != null) {
       final user = result.data!;
-      _fullNameCtrl.text   = user.fullName;
-      _contactCtrl.text    = user.contactNumber;
-      _locationCtrl.text   = user.address ?? '';
-      _ecNameCtrl.text     = user.emergencyContact?.name ?? '';
-      _ecNumberCtrl.text   = user.emergencyContact?.contactNumber ?? '';
-      _selectedHospital    = _hospitals.contains(user.preferredHospital)
-          ? user.preferredHospital
-          : null;
-      setState(() {});
+      // If the service returned non-empty data, use it
+      if (user.fullName.isNotEmpty || user.contactNumber.isNotEmpty) {
+        _fullNameCtrl.text   = user.fullName;
+        _contactCtrl.text    = user.contactNumber;
+        _locationCtrl.text   = user.address ?? '';
+        _ecNameCtrl.text     = user.emergencyContact?.name ?? '';
+        _ecNumberCtrl.text   = user.emergencyContact?.contactNumber ?? '';
+        _selectedHospital    = _hospitals.contains(user.preferredHospital)
+            ? user.preferredHospital
+            : null;
+        setState(() {});
+        return;
+      }
     }
+
+    // [FIX 2] Fallback: read directly from local SharedPreferences registration data
+    final reg = await RegistrationService.instance.loadRegistration();
+    if (!mounted) return;
+    if (reg != null && !reg.isEmpty) {
+      _fullNameCtrl.text  = reg.fullName;
+      _contactCtrl.text   = reg.mobilePrimary;
+      _locationCtrl.text  = reg.address.isNotEmpty ? reg.address : reg.barangay;
+      _ecNameCtrl.text    = reg.ecName;
+      _ecNumberCtrl.text  = reg.mobileSecondary;
+    }
+    setState(() {});
   }
 
   // ── Save profile via service ───────────────────────────────────────────────

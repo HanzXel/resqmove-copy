@@ -127,6 +127,12 @@ class _RegisterScreenState extends State<RegisterScreen>
     if (ok) {
       HapticFeedback.heavyImpact();
       if (!mounted) return;
+
+      // [FIX 1] Show success toast then wait before navigating to dashboard
+      _showToast('Created Successfully', error: false);
+      await Future<void>.delayed(const Duration(milliseconds: 2500));
+      if (!mounted) return;
+
       widget.onRegistered();
       unawaited(_syncPatientInBackground());
     } else {
