@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../../models/models.dart';
 import '../../services/auth_service.dart';
+import '../../services/driver_service.dart';
 import '../../services/profile_service.dart';
 
 class DriverProfileScreen extends StatefulWidget {
@@ -27,6 +28,11 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   final _hospitalCtrl  = TextEditingController();
   final _unitTypeCtrl  = TextEditingController();
 
+  // Live stats fetched from backend
+  String _statTripsToday = '0';
+  String _statPending = '0';
+  String _statAvgResponse = '--';
+
   File? _profileImage;
   final ImagePicker _picker = ImagePicker();
   static const _kAvatarKey = 'resqmove_driver_avatar_path';
@@ -37,10 +43,22 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   void initState() {
     super.initState();
     _loadFromSession();
-    _loadSavedProfile(); // [FIX] restore persisted fields first
+    _loadSavedProfile();
     _loadSavedAvatar();
-    // [FIX] Also fetch fresh data from backend if authenticated
     unawaited(_fetchFromBackend());
+    unawaited(_fetchStats()); // [FIX] load live trip stats
+  }
+
+  Future<void> _fetchStats() async {
+    try {
+      final stats = await DriverService.instance.getStats();
+      if (!mounted) return;
+      setState(() {
+        _statTripsToday = stats.tripsCompleted.toString();
+        _statPending = stats.pendingRequests.toString();
+        _statAvgResponse = stats.avgResponseTime;
+      });
+    } catch (_) {}
   }
 
   // [FIX] Restore persisted profile fields (survive logout)
@@ -478,15 +496,15 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   _SectionLabel(label: "Today's Summary", icon: Icons.bar_chart_rounded, color: AppTheme.blue),
                   const SizedBox(height: 14),
                   Row(
-                    children: const [
-                      _MiniStat(label: 'Trips\nCompleted', color: AppTheme.success,
-                          icon: Icons.check_circle_outline_rounded, value: '0'),
-                      SizedBox(width: 11),
+                    children: [
+                      _MiniStat(label: 'Trips\nToday', color: AppTheme.success,
+                          icon: Icons.check_circle_outline_rounded, value: _statTripsToday),
+                      const SizedBox(width: 11),
                       _MiniStat(label: 'Pending\nRequests', color: AppTheme.warning,
-                          icon: Icons.notifications_active_rounded, value: '0'),
-                      SizedBox(width: 11),
+                          icon: Icons.notifications_active_rounded, value: _statPending),
+                      const SizedBox(width: 11),
                       _MiniStat(label: 'Avg\nResponse', color: AppTheme.crimson,
-                          icon: Icons.timer_outlined, value: '--'),
+                          icon: Icons.timer_outlined, value: _statAvgResponse),
                     ],
                   ),
 

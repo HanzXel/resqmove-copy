@@ -12,6 +12,7 @@ import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/request_service.dart';
 import '../services/tracking_service.dart';
+import '../services/notification_service.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -28,11 +29,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
   TrackingSnapshot? _snapshot;
   StreamSubscription<TrackingSnapshot>? _sub;
   String? _driverContactNumber;
-  Timer? _pollTimer; // [FIX] periodic poll to catch status changes
+  Timer? _pollTimer;
 
-  // [FIX] Track previous status to detect acceptance transition
+  // Track status transitions to show modals
   RequestStatus? _prevStatus;
   bool _acceptedModalShown = false;
+  bool _arrivedModalShown = false;
 
   LatLng get _pickup {
     final r = _request;
@@ -84,7 +86,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
         statusColor = AppTheme.blue;
         break;
       case RequestStatus.inProgress:
-        statusLabel = 'ON SCENE / TRANSPORT';
+        statusLabel = 'AMBULANCE ARRIVED';
         statusColor = AppTheme.success;
         break;
       case RequestStatus.completed:
@@ -131,11 +133,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
       ],
     );
   }
+
   @override
   void initState() {
     super.initState();
     unawaited(_bootstrap());
-    // [FIX] Poll every 5s so user sees acceptance even if WebSocket misses it
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _pollActiveRequest());
   }
 
@@ -156,9 +158,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
       _loading = false;
       _request = res.request;
       _prevStatus = res.request!.status;
+      // Reset modal flags for this request
+      _acceptedModalShown = false;
+      _arrivedModalShown = false;
     });
 
-    // Fetch driver contact number if a driver has been assigned
     final driverId = res.request!.assignedDriverId;
     if (driverId != null && driverId.isNotEmpty) {
       unawaited(_fetchDriverContact(driverId));
@@ -176,17 +180,41 @@ class _TrackingScreenState extends State<TrackingScreen> {
         _prevStatus = newStatus;
       });
 
-      // [FIX] Show acceptance modal when status transitions to accepted
+      // Show acceptance modal when status transitions to accepted
       if (!_acceptedModalShown &&
           oldStatus == RequestStatus.pending &&
           newStatus == RequestStatus.accepted) {
         _acceptedModalShown = true;
+        unawaited(NotificationService.instance.showLocal(
+          title: '🚑 Request Accepted!',
+          body: 'A driver has accepted your emergency request and is on the way.',
+        ));
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _showAcceptedModal();
         });
       }
 
-      // Fetch driver contact once accepted (driver assigned mid-trip)
+      // Show arrived modal when status transitions to in_progress
+      if (!_arrivedModalShown &&
+          (oldStatus == RequestStatus.accepted || oldStatus == RequestStatus.pending) &&
+          newStatus == RequestStatus.inProgress) {
+        _arrivedModalShown = true;
+        unawaited(NotificationService.instance.showLocal(
+          title: '📍 Ambulance Arrived!',
+          body: 'The ambulance has arrived at your location. Please confirm when ready.',
+        ));
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showArrivedModal();
+        });
+      }
+
+      // Handle completion — reset tracking page
+      if (newStatus == RequestStatus.completed) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _handleTripCompleted();
+        });
+      }
+
       final newDriverId = _request?.assignedDriverId;
       if (_driverContactNumber == null &&
           newDriverId != null &&
@@ -196,44 +224,70 @@ class _TrackingScreenState extends State<TrackingScreen> {
     });
   }
 
-  // [FIX] Periodic poll — catches acceptance when WebSocket hasn't fired yet
   Future<void> _pollActiveRequest() async {
     if (_loading) return;
     final res = await RequestService.instance.getActiveRequest();
     if (!mounted) return;
-    if (!res.success || res.request == null) return;
+
+    // If no active request and we had one — it was completed/cancelled externally
+    if (!res.success || res.request == null) {
+      if (_request != null &&
+          (_request!.status == RequestStatus.completed ||
+           _request!.status == RequestStatus.cancelled)) {
+        _resetForNewRequest();
+      }
+      return;
+    }
 
     final newStatus = res.request!.status;
     final oldStatus = _prevStatus;
 
-    // If we didn't have a request yet but now we do, refresh bootstrap
     if (_request == null) {
       setState(() {
         _request = res.request;
         _prevStatus = newStatus;
+        _acceptedModalShown = false;
+        _arrivedModalShown = false;
       });
       unawaited(_bootstrap());
       return;
     }
 
-    // Update request data and check for acceptance transition
-    setState(() {
-      _request = res.request;
-    });
+    setState(() { _request = res.request; });
 
     if (!_acceptedModalShown &&
         oldStatus == RequestStatus.pending &&
         newStatus == RequestStatus.accepted) {
       _acceptedModalShown = true;
       setState(() => _prevStatus = newStatus);
+      unawaited(NotificationService.instance.showLocal(
+        title: '🚑 Request Accepted!',
+        body: 'A driver has accepted your emergency request and is on the way.',
+      ));
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showAcceptedModal();
+      });
+    } else if (!_arrivedModalShown &&
+        (oldStatus == RequestStatus.accepted || oldStatus == RequestStatus.pending) &&
+        newStatus == RequestStatus.inProgress) {
+      _arrivedModalShown = true;
+      setState(() => _prevStatus = newStatus);
+      unawaited(NotificationService.instance.showLocal(
+        title: '📍 Ambulance Arrived!',
+        body: 'The ambulance has arrived at your location. Please confirm when ready.',
+      ));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showArrivedModal();
+      });
+    } else if (newStatus == RequestStatus.completed && oldStatus != RequestStatus.completed) {
+      setState(() => _prevStatus = newStatus);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _handleTripCompleted();
       });
     } else if (newStatus != oldStatus) {
       setState(() => _prevStatus = newStatus);
     }
 
-    // Fetch driver contact if now available
     final driverId = res.request!.assignedDriverId;
     if (_driverContactNumber == null &&
         driverId != null &&
@@ -242,7 +296,117 @@ class _TrackingScreenState extends State<TrackingScreen> {
     }
   }
 
-  // [FIX] Modal that notifies the user their request has been accepted
+  /// Called when the driver completes the trip — resets the tracking page
+  /// so the patient is ready to submit a new request.
+  void _handleTripCompleted() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        backgroundColor: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(28, 32, 28, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00A86B), Color(0xFF009952)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.success.withOpacity(0.40),
+                      blurRadius: 28,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.check_circle_rounded, color: Colors.white, size: 44),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Trip Completed!',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Your trip has been completed. Thank you for using ResQMove!',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textMid, height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _resetForNewRequest();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 17),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF00A86B), Color(0xFF009952)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.success.withOpacity(0.40),
+                        blurRadius: 16,
+                        offset: const Offset(0, 7),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    'DONE',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.outfit(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Resets state so the tracking screen is clean for a new request
+  void _resetForNewRequest() {
+    _sub?.cancel();
+    _sub = null;
+    TrackingService.instance.stopTracking();
+    if (mounted) {
+      setState(() {
+        _request = null;
+        _snapshot = null;
+        _prevStatus = null;
+        _acceptedModalShown = false;
+        _arrivedModalShown = false;
+        _driverContactNumber = null;
+      });
+    }
+  }
+
+  // Modal that notifies the user their request has been accepted
   void _showAcceptedModal() {
     HapticFeedback.heavyImpact();
     showDialog(
@@ -256,7 +420,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Animated checkmark container
               Container(
                 width: 88,
                 height: 88,
@@ -275,11 +438,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.airport_shuttle_rounded,
-                  color: Colors.white,
-                  size: 44,
-                ),
+                child: const Icon(Icons.airport_shuttle_rounded, color: Colors.white, size: 44),
               ),
               const SizedBox(height: 24),
               Text(
@@ -295,11 +454,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               Text(
                 'A driver has accepted your emergency request and is on the way to your location.',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(
-                  fontSize: 14,
-                  color: AppTheme.textMid,
-                  height: 1.5,
-                ),
+                style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textMid, height: 1.5),
               ),
               const SizedBox(height: 8),
               Container(
@@ -313,8 +468,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.location_on_rounded,
-                        color: AppTheme.blue, size: 16),
+                    const Icon(Icons.location_on_rounded, color: AppTheme.blue, size: 16),
                     const SizedBox(width: 7),
                     Text(
                       'Track the ambulance below',
@@ -367,6 +521,101 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
+  /// Modal shown when the driver marks arrived (status → in_progress).
+  /// User taps "CONFIRM ARRIVED" which resets the page for a new request.
+  void _showArrivedModal() {
+    HapticFeedback.heavyImpact();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        backgroundColor: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(28, 32, 28, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFF6B35), Color(0xFFE53935)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.orange.withOpacity(0.40),
+                      blurRadius: 28,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.location_on_rounded, color: Colors.white, size: 44),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Ambulance Arrived!',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'The ambulance has arrived at your location. Please go to the vehicle and confirm when you are ready.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(fontSize: 14, color: AppTheme.textMid, height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  // Reset tracking page so it's ready for a new request
+                  _resetForNewRequest();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 17),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF00A86B), Color(0xFF009952)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.success.withOpacity(0.40),
+                        blurRadius: 16,
+                        offset: const Offset(0, 7),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    'CONFIRM ARRIVED',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.outfit(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _fetchDriverContact(String driverId) async {
     try {
       final response = await ApiClient.instance.get('/driver/$driverId/contact');
@@ -374,9 +623,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
       if (contact != null && contact.isNotEmpty && mounted) {
         setState(() => _driverContactNumber = contact);
       }
-    } catch (_) {
-      // Contact fetch failed — Call Driver button will fall back to hotline
-    }
+    } catch (_) {}
   }
 
   Future<void> _callDriver() async {
@@ -544,7 +791,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                       child: Row(
                         children: [
-                          // ETA pill
                           _MapPill(
                             child: Row(
                               children: [
@@ -624,7 +870,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   ),
                 ),
 
-                // ── Bottom map overlays ──
                 Positioned(
                   bottom: 18,
                   left: 16,
@@ -740,7 +985,6 @@ class _TrackingPanel extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle
           Container(
             width: 44,
             height: 4,
@@ -750,7 +994,6 @@ class _TrackingPanel extends StatelessWidget {
           ),
           const SizedBox(height: 18),
 
-          // Status pill
           Center(
             child: Container(
               padding:
@@ -779,15 +1022,11 @@ class _TrackingPanel extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // Ambulance info card
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  AppTheme.surfaceLight,
-                  Colors.white,
-                ],
+                colors: [AppTheme.surfaceLight, Colors.white],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -867,7 +1106,6 @@ class _TrackingPanel extends StatelessWidget {
 
           const SizedBox(height: 14),
 
-          // Progress steps
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
@@ -899,11 +1137,10 @@ class _TrackingPanel extends StatelessWidget {
                   active: state.stepsActive[1],
                   isLast: false,
                 ),
-                // [FIX] Third step now reflects "Arrived" (inProgress) correctly
                 _ProgressStep(
                   icon: Icons.location_on_rounded,
                   label: state.stepsActive[2]
-                      ? 'Ambulance Arrived / On Scene'
+                      ? 'Ambulance Arrived — Confirm to proceed'
                       : 'Arriving at Your Location',
                   time: state.stepsDone[2] ? 'Done' : 'Pending',
                   done: state.stepsDone[2],
