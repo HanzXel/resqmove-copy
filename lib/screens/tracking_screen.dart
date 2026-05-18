@@ -28,6 +28,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   TrackingSnapshot? _snapshot;
   StreamSubscription<TrackingSnapshot>? _sub;
   String? _driverContactNumber;
+  Timer? _pollTimer; // [FIX] periodic poll to catch status changes
 
   // [FIX] Track previous status to detect acceptance transition
   RequestStatus? _prevStatus;
@@ -134,6 +135,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
   void initState() {
     super.initState();
     unawaited(_bootstrap());
+    // [FIX] Poll every 5s so user sees acceptance even if WebSocket misses it
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _pollActiveRequest());
   }
 
   Future<void> _bootstrap() async {
@@ -191,6 +194,52 @@ class _TrackingScreenState extends State<TrackingScreen> {
         unawaited(_fetchDriverContact(newDriverId));
       }
     });
+  }
+
+  // [FIX] Periodic poll — catches acceptance when WebSocket hasn't fired yet
+  Future<void> _pollActiveRequest() async {
+    if (_loading) return;
+    final res = await RequestService.instance.getActiveRequest();
+    if (!mounted) return;
+    if (!res.success || res.request == null) return;
+
+    final newStatus = res.request!.status;
+    final oldStatus = _prevStatus;
+
+    // If we didn't have a request yet but now we do, refresh bootstrap
+    if (_request == null) {
+      setState(() {
+        _request = res.request;
+        _prevStatus = newStatus;
+      });
+      unawaited(_bootstrap());
+      return;
+    }
+
+    // Update request data and check for acceptance transition
+    setState(() {
+      _request = res.request;
+    });
+
+    if (!_acceptedModalShown &&
+        oldStatus == RequestStatus.pending &&
+        newStatus == RequestStatus.accepted) {
+      _acceptedModalShown = true;
+      setState(() => _prevStatus = newStatus);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showAcceptedModal();
+      });
+    } else if (newStatus != oldStatus) {
+      setState(() => _prevStatus = newStatus);
+    }
+
+    // Fetch driver contact if now available
+    final driverId = res.request!.assignedDriverId;
+    if (_driverContactNumber == null &&
+        driverId != null &&
+        driverId.isNotEmpty) {
+      unawaited(_fetchDriverContact(driverId));
+    }
   }
 
   // [FIX] Modal that notifies the user their request has been accepted
@@ -340,6 +389,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   void dispose() {
     _sub?.cancel();
+    _pollTimer?.cancel();
     TrackingService.instance.stopTracking();
     super.dispose();
   }

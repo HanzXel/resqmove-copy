@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -28,13 +29,79 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
 
   File? _profileImage;
   final ImagePicker _picker = ImagePicker();
-  static const _kAvatarKey = 'resqmove_driver_avatar_path'; // [FIX] persist key
+  static const _kAvatarKey = 'resqmove_driver_avatar_path';
+  // [FIX] Persist profile fields so they survive logout/login
+  static const _kProfileKey = 'resqmove_driver_profile_json';
 
   @override
   void initState() {
     super.initState();
     _loadFromSession();
-    _loadSavedAvatar(); // [FIX] restore avatar on startup
+    _loadSavedProfile(); // [FIX] restore persisted fields first
+    _loadSavedAvatar();
+    // [FIX] Also fetch fresh data from backend if authenticated
+    unawaited(_fetchFromBackend());
+  }
+
+  // [FIX] Restore persisted profile fields (survive logout)
+  Future<void> _loadSavedProfile() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final json = prefs.getString(_kProfileKey);
+      if (json != null && json.isNotEmpty && mounted) {
+        final map = Map<String, String?>.from(
+            (jsonDecode(json) as Map).map((k, v) => MapEntry(k.toString(), v?.toString())));
+        setState(() {
+          if (_fullNameCtrl.text.isEmpty && (map['fullName'] ?? '').isNotEmpty)
+            _fullNameCtrl.text = map['fullName']!;
+          if (_driverIdCtrl.text.isEmpty && (map['driverId'] ?? '').isNotEmpty)
+            _driverIdCtrl.text = map['driverId']!;
+          if (_contactCtrl.text.isEmpty && (map['contact'] ?? '').isNotEmpty)
+            _contactCtrl.text = map['contact']!;
+          if (_unitIdCtrl.text.isEmpty && (map['unitId'] ?? '').isNotEmpty)
+            _unitIdCtrl.text = map['unitId']!;
+          if (_hospitalCtrl.text.isEmpty && (map['hospital'] ?? '').isNotEmpty)
+            _hospitalCtrl.text = map['hospital']!;
+          if (_unitTypeCtrl.text.isEmpty && (map['unitType'] ?? '').isNotEmpty)
+            _unitTypeCtrl.text = map['unitType']!;
+        });
+      }
+    } catch (_) {}
+  }
+
+  // [FIX] Persist profile fields to SharedPreferences
+  Future<void> _saveProfileLocally() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kProfileKey, jsonEncode({
+        'fullName': _fullNameCtrl.text,
+        'driverId': _driverIdCtrl.text,
+        'contact': _contactCtrl.text,
+        'unitId': _unitIdCtrl.text,
+        'hospital': _hospitalCtrl.text,
+        'unitType': _unitTypeCtrl.text,
+      }));
+    } catch (_) {}
+  }
+
+  // [FIX] Fetch fresh data from backend profile endpoint
+  Future<void> _fetchFromBackend() async {
+    try {
+      final result = await ProfileService.instance.getDriverProfile();
+      if (!mounted) return;
+      if (result.success && result.data != null) {
+        final d = result.data!;
+        setState(() {
+          _fullNameCtrl.text = d.fullName;
+          _driverIdCtrl.text = d.driverId;
+          _contactCtrl.text = d.contactNumber;
+          _unitIdCtrl.text = d.unitId ?? '';
+          _hospitalCtrl.text = d.hospitalName ?? '';
+          _unitTypeCtrl.text = d.unitType ?? '';
+        });
+        unawaited(_saveProfileLocally());
+      }
+    } catch (_) {}
   }
 
   // [FIX] Restore avatar path from SharedPreferences
@@ -178,6 +245,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     if (!mounted) return;
 
     if (result.success) {
+      unawaited(_saveProfileLocally()); // [FIX] persist after save
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(children: [

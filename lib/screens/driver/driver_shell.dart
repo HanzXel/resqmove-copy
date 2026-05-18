@@ -6,6 +6,7 @@ import '../../models/models.dart';
 import '../../services/driver_service.dart';
 import 'driver_dashboard_screen.dart';
 import 'driver_profile_screen.dart';
+import 'driver_transport_screen.dart';
 
 // ─────────────────────────────────────────────
 //  TRIPS SCREEN (real data)
@@ -363,6 +364,7 @@ class _DriverShellState extends State<DriverShell> {
 
   final List<Widget> _screens = const [
     DriverDashboardScreen(),
+    DriverTransportScreen(),
     _DriverTripsScreen(),
     DriverProfileScreen(),
   ];
@@ -426,16 +428,23 @@ class _DriverBottomNav extends StatelessWidget {
               onTap: onTap,
             ),
             _DriverNavItem(
+              icon: Icons.airport_shuttle_rounded,
+              label: 'Transport',
+              index: 1,
+              current: currentIndex,
+              onTap: onTap,
+            ),
+            _DriverNavItem(
               icon: Icons.history_rounded,
               label: 'Trips',
-              index: 1,
+              index: 2,
               current: currentIndex,
               onTap: onTap,
             ),
             _DriverNavItem(
               icon: Icons.person_rounded,
               label: 'Profile',
-              index: 2,
+              index: 3,
               current: currentIndex,
               onTap: onTap,
             ),
